@@ -1,0 +1,1076 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Vocare</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #0a0a0a;
+      color: #e0e0e0;
+      height: 100vh;
+      overflow: hidden;
+    }
+
+    .app {
+      display: grid;
+      grid-template-columns: 380px 1fr;
+      height: 100vh;
+    }
+
+    /* Left panel — controls */
+    .panel-left {
+      padding: 2rem;
+      border-right: 1px solid #1a1a1a;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+    }
+
+    h1 {
+      font-size: 1.5rem;
+      font-weight: 600;
+      margin-bottom: 1.5rem;
+      text-align: center;
+      color: #fff;
+    }
+
+    .config-group { margin-bottom: 1rem; }
+
+    label {
+      display: block;
+      font-size: 0.75rem;
+      font-weight: 500;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: #888;
+      margin-bottom: 0.35rem;
+    }
+
+    select, input[type="text"] {
+      width: 100%;
+      padding: 0.6rem 0.75rem;
+      background: #1a1a1a;
+      color: #e0e0e0;
+      border: 1px solid #333;
+      border-radius: 6px;
+      font-size: 0.9rem;
+    }
+
+    select { appearance: none; cursor: pointer; }
+    input[type="text"] { cursor: text; }
+
+    select:focus, input[type="text"]:focus {
+      outline: none;
+      border-color: #555;
+    }
+
+    .toggle-group {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 1rem;
+    }
+
+    .toggle-group label { margin-bottom: 0; }
+
+    .toggle {
+      position: relative;
+      width: 44px;
+      height: 24px;
+      flex-shrink: 0;
+    }
+
+    .toggle input { opacity: 0; width: 0; height: 0; }
+
+    .toggle-slider {
+      position: absolute;
+      inset: 0;
+      background: #333;
+      border-radius: 12px;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+
+    .toggle-slider::before {
+      content: '';
+      position: absolute;
+      width: 18px;
+      height: 18px;
+      left: 3px;
+      bottom: 3px;
+      background: #888;
+      border-radius: 50%;
+      transition: transform 0.2s, background 0.2s;
+    }
+
+    .toggle input:checked + .toggle-slider { background: #1d4ed8; }
+    .toggle input:checked + .toggle-slider::before {
+      transform: translateX(20px);
+      background: #fff;
+    }
+
+    .btn {
+      width: 100%;
+      padding: 0.75rem;
+      border: none;
+      border-radius: 8px;
+      font-size: 1rem;
+      font-weight: 600;
+      cursor: pointer;
+      margin-top: 1.5rem;
+      transition: background 0.15s;
+    }
+
+    #connectBtn { background: #2563eb; color: #fff; }
+    #connectBtn:hover { background: #1d4ed8; }
+    #connectBtn:disabled { background: #333; color: #666; cursor: not-allowed; }
+
+    #disconnectBtn { background: #dc2626; color: #fff; display: none; }
+    #disconnectBtn:hover { background: #b91c1c; }
+
+    #status {
+      text-align: center;
+      margin-top: 1rem;
+      font-size: 0.85rem;
+      color: #888;
+      min-height: 1.2em;
+    }
+
+    .status-connected { color: #22c55e !important; }
+    .status-error { color: #ef4444 !important; }
+
+    .audio-indicator {
+      display: none;
+      justify-content: center;
+      align-items: center;
+      gap: 4px;
+      margin-top: 1rem;
+      height: 32px;
+    }
+
+    .audio-indicator.active { display: flex; }
+
+    .audio-bar {
+      width: 4px;
+      height: 8px;
+      background: #2563eb;
+      border-radius: 2px;
+      animation: pulse 0.8s ease-in-out infinite;
+    }
+    .audio-bar:nth-child(2) { animation-delay: 0.15s; }
+    .audio-bar:nth-child(3) { animation-delay: 0.3s; }
+    .audio-bar:nth-child(4) { animation-delay: 0.45s; }
+
+    @keyframes pulse {
+      0%, 100% { height: 8px; }
+      50% { height: 24px; }
+    }
+
+    /* Right panel — graph */
+    .panel-right {
+      position: relative;
+      background: #050508;
+      overflow: hidden;
+    }
+
+    .graph-header {
+      position: absolute;
+      top: 1rem;
+      left: 1.5rem;
+      z-index: 10;
+      pointer-events: none;
+    }
+
+    .graph-header h2 {
+      font-size: 0.85rem;
+      font-weight: 500;
+      color: #555;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+
+    .graph-status {
+      font-size: 0.75rem;
+      color: #444;
+      margin-top: 0.25rem;
+    }
+
+    .graph-legend {
+      position: absolute;
+      bottom: 1rem;
+      left: 1.5rem;
+      display: flex;
+      gap: 1rem;
+      z-index: 10;
+      pointer-events: none;
+    }
+
+    .legend-item {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 0.7rem;
+      color: #555;
+    }
+
+    .legend-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+    }
+
+    .graph-placeholder {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #333;
+      font-size: 0.9rem;
+      z-index: 5;
+    }
+
+    /* 3D Graph Scene */
+    .graph-scene {
+      position: absolute;
+      inset: 0;
+      perspective: 1200px;
+      overflow: hidden;
+    }
+
+    #edgeCanvas {
+      position: absolute;
+      inset: 0;
+      z-index: 1;
+      pointer-events: none;
+    }
+
+    .graph-world {
+      position: absolute;
+      inset: 0;
+      transform-style: preserve-3d;
+      z-index: 2;
+      transition: transform 0.1s ease-out;
+    }
+
+    /* Node styling */
+    .graph-node {
+      position: absolute;
+      border-radius: 50%;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      background: rgba(10, 10, 15, 0.85);
+      border: 2px solid var(--node-color);
+      box-shadow: 0 0 12px var(--node-color-alpha);
+      transform: translate3d(var(--x), var(--y), var(--z)) translate(-50%, -50%);
+      transition: transform 0.8s cubic-bezier(0.34, 1.56, 0.64, 1),
+                  opacity 0.5s ease,
+                  box-shadow 0.3s ease,
+                  border-color 0.3s ease;
+      pointer-events: none;
+      will-change: transform;
+    }
+
+    .graph-node .node-icon {
+      font-size: 14px;
+      line-height: 1;
+      opacity: 0.4;
+    }
+
+    .graph-node.size-lg { width: 80px; height: 80px; }
+    .graph-node.size-lg .node-icon { font-size: 20px; }
+
+    .graph-node.size-sm { width: 60px; height: 60px; }
+
+    .graph-node .node-label {
+      position: absolute;
+      bottom: -22px;
+      left: 50%;
+      transform: translateX(-50%);
+      white-space: nowrap;
+      font-size: 12px;
+      font-weight: 500;
+      color: #555;
+      text-align: center;
+    }
+
+    .graph-node .node-sublabel {
+      position: absolute;
+      bottom: -36px;
+      left: 50%;
+      transform: translateX(-50%);
+      white-space: nowrap;
+      font-size: 10px;
+      color: #3a3a3a;
+      text-align: center;
+    }
+
+    .graph-node .node-alert {
+      position: absolute;
+      top: -18px;
+      left: 50%;
+      transform: translateX(-50%);
+      font-size: 10px;
+      font-weight: 600;
+      color: #ef4444;
+      white-space: nowrap;
+      opacity: 0;
+      pointer-events: none;
+    }
+
+    /* State: inactive (default) */
+    .graph-node.inactive {
+      opacity: 0.35;
+      border-color: var(--node-color);
+      box-shadow: none;
+    }
+    .graph-node.inactive .node-icon { opacity: 0.3; }
+
+    /* State: active */
+    .graph-node.active {
+      opacity: 1;
+      border-color: var(--node-color);
+      box-shadow: 0 0 20px var(--node-color-alpha), 0 0 40px var(--node-color-alpha-dim);
+    }
+    .graph-node.active .node-icon { opacity: 0.9; color: #fff; }
+    .graph-node.active .node-label { color: #fff; opacity: 0.95; }
+    .graph-node.active .node-sublabel { color: #aaa; opacity: 0.85; }
+
+    /* State: highlighted (cyan pulse) */
+    .graph-node.highlighted {
+      opacity: 1;
+      border-color: #00e5ff;
+      box-shadow: 0 0 30px rgba(0, 229, 255, 0.6), 0 0 60px rgba(0, 229, 255, 0.3);
+      animation: highlightPulse 1.5s ease-in-out 1;
+    }
+    .graph-node.highlighted .node-icon { opacity: 1; color: #fff; }
+    .graph-node.highlighted .node-label { color: #00e5ff; opacity: 1; }
+    .graph-node.highlighted .node-sublabel { color: #88e5f5; opacity: 0.9; }
+
+    @keyframes highlightPulse {
+      0% { box-shadow: 0 0 30px rgba(0, 229, 255, 0.6), 0 0 60px rgba(0, 229, 255, 0.3); }
+      50% { box-shadow: 0 0 50px rgba(0, 229, 255, 0.8), 0 0 80px rgba(0, 229, 255, 0.4); }
+      100% { box-shadow: 0 0 30px rgba(0, 229, 255, 0.6), 0 0 60px rgba(0, 229, 255, 0.3); }
+    }
+
+    /* State: dimmed (when another node is highlighted) */
+    .graph-node.dimmed {
+      opacity: 0.15;
+    }
+    .graph-node.dimmed .node-label { opacity: 0.3; }
+    .graph-node.dimmed .node-sublabel { opacity: 0.2; }
+
+    /* Alert badge pulse */
+    .graph-node.active .node-alert,
+    .graph-node.highlighted .node-alert {
+      opacity: 1;
+      animation: alertPulse 1.5s ease-in-out infinite;
+    }
+
+    @keyframes alertPulse {
+      0%, 100% { opacity: 0.5; }
+      50% { opacity: 1; }
+    }
+
+    /* Responsive */
+    @media (max-width: 800px) {
+      .app {
+        grid-template-columns: 1fr;
+        grid-template-rows: auto 1fr;
+      }
+      .panel-left { border-right: none; border-bottom: 1px solid #1a1a1a; }
+      .panel-right { min-height: 400px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <!-- Left panel: controls -->
+    <div class="panel-left">
+      <h1>Vocare</h1>
+
+      <div class="config-group">
+        <label for="stt">Speech-to-Text</label>
+        <select id="stt">
+          <option value="deepgram">Deepgram</option>
+          <option value="elevenlabs">ElevenLabs</option>
+        </select>
+      </div>
+
+      <div class="config-group">
+        <label for="llm">LLM</label>
+        <select id="llm">
+          <option value="groq">Groq</option>
+          <option value="mistral">Mistral</option>
+        </select>
+      </div>
+
+      <div class="config-group">
+        <label for="tts">Text-to-Speech</label>
+        <select id="tts">
+          <option value="elevenlabs">ElevenLabs</option>
+        </select>
+      </div>
+
+      <div class="toggle-group">
+        <label for="useKg">Knowledge Graph</label>
+        <label class="toggle">
+          <input type="checkbox" id="useKg" checked />
+          <span class="toggle-slider"></span>
+        </label>
+      </div>
+
+      <button class="btn" id="connectBtn">Connect</button>
+      <button class="btn" id="disconnectBtn">Disconnect</button>
+
+      <div class="audio-indicator" id="audioIndicator">
+        <div class="audio-bar"></div>
+        <div class="audio-bar"></div>
+        <div class="audio-bar"></div>
+        <div class="audio-bar"></div>
+      </div>
+
+      <div id="status"></div>
+    </div>
+
+    <!-- Right panel: graph visualization -->
+    <div class="panel-right">
+      <div class="graph-header">
+        <h2>Knowledge Graph</h2>
+        <div class="graph-status" id="graphStatus">Waiting for connection...</div>
+      </div>
+
+      <div class="graph-scene">
+        <canvas id="edgeCanvas"></canvas>
+        <div class="graph-world" id="graphWorld"></div>
+      </div>
+
+      <div class="graph-placeholder" id="graphPlaceholder">
+        Enable Knowledge Graph and connect to visualize
+      </div>
+
+      <div class="graph-legend" id="graphLegend" style="display:none;">
+        <div class="legend-item"><div class="legend-dot" style="background:#f59e0b;"></div>Customer</div>
+        <div class="legend-item"><div class="legend-dot" style="background:#3b82f6;"></div>Flight</div>
+        <div class="legend-item"><div class="legend-dot" style="background:#10b981;"></div>Baggage</div>
+        <div class="legend-item"><div class="legend-dot" style="background:#8b5cf6;"></div>Rebooking</div>
+        <div class="legend-item"><div class="legend-dot" style="background:#f97316;"></div>Comms</div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // -----------------------------------------------------------------------
+    // WebRTC connection
+    // -----------------------------------------------------------------------
+    const connectBtn = document.getElementById('connectBtn');
+    const disconnectBtn = document.getElementById('disconnectBtn');
+    const statusEl = document.getElementById('status');
+    const audioIndicator = document.getElementById('audioIndicator');
+
+    let pc = null;
+    let pcId = null;
+    let dataChannel = null;
+    let pingInterval = null;
+    let eventSource = null;
+
+    function setStatus(msg, cls) {
+      statusEl.textContent = msg;
+      statusEl.className = cls ? `status-${cls}` : '';
+    }
+
+    async function connect() {
+      connectBtn.disabled = true;
+      setStatus('Connecting...');
+      graphRenderer.reset();
+
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+
+        pc = new RTCPeerConnection({
+          iceServers: [{ urls: 'stun:stun.l.google.com:19302' }],
+        });
+
+        stream.getTracks().forEach(track => pc.addTrack(track, stream));
+        pc.addTransceiver('audio', { direction: 'recvonly' });
+
+        dataChannel = pc.createDataChannel('data', { ordered: true });
+
+        dataChannel.onopen = () => {
+          pingInterval = setInterval(() => {
+            if (dataChannel.readyState === 'open') dataChannel.send('ping');
+          }, 2000);
+        };
+
+        pc.ontrack = (event) => {
+          const audio = new Audio();
+          audio.srcObject = event.streams[0];
+          audio.autoplay = true;
+        };
+
+        pc.onconnectionstatechange = () => {
+          if (pc.connectionState === 'connected') {
+            setStatus('Connected', 'connected');
+            audioIndicator.classList.add('active');
+            disconnectBtn.style.display = 'block';
+          } else if (pc.connectionState === 'disconnected' || pc.connectionState === 'failed') {
+            cleanup();
+            setStatus('Disconnected', 'error');
+          }
+        };
+
+        const offer = await pc.createOffer();
+        await pc.setLocalDescription(offer);
+
+        await new Promise((resolve) => {
+          if (pc.iceGatheringState === 'complete') return resolve();
+          const check = () => {
+            if (pc.iceGatheringState === 'complete') {
+              pc.removeEventListener('icegatheringstatechange', check);
+              resolve();
+            }
+          };
+          pc.addEventListener('icegatheringstatechange', check);
+          setTimeout(resolve, 1000);
+        });
+
+        const useKg = document.getElementById('useKg').checked;
+
+        const response = await fetch('/api/offer', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            sdp: pc.localDescription.sdp,
+            type: pc.localDescription.type,
+            pc_id: pcId,
+            stt: document.getElementById('stt').value,
+            llm: document.getElementById('llm').value,
+            tts: document.getElementById('tts').value,
+            use_kg: useKg,
+          }),
+        });
+
+        const answer = await response.json();
+        pcId = answer.pc_id;
+        await pc.setRemoteDescription(answer);
+
+        // Connect to SSE for graph events
+        if (useKg) {
+          connectGraphSSE(pcId);
+        }
+
+      } catch (err) {
+        console.error(err);
+        setStatus(`Error: ${err.message}`, 'error');
+        cleanup();
+      }
+    }
+
+    function connectGraphSSE(sessionPcId) {
+      const graphStatusEl = document.getElementById('graphStatus');
+      const placeholder = document.getElementById('graphPlaceholder');
+      const legend = document.getElementById('graphLegend');
+
+      graphStatusEl.textContent = 'Connecting to graph...';
+
+      eventSource = new EventSource(`/api/graph/events/${encodeURIComponent(sessionPcId)}`);
+
+      eventSource.onmessage = (e) => {
+        console.log('[SSE]', e.data);
+        const event = JSON.parse(e.data);
+
+        if (event.type === 'graph') {
+          placeholder.style.display = 'none';
+          legend.style.display = 'flex';
+          graphStatusEl.textContent = 'Traversing graph...';
+          graphRenderer.loadGraph(event.data);
+        } else if (event.type === 'traverse') {
+          graphRenderer.animateTraversal(event.fromId, event.toId, event.label);
+        } else if (event.type === 'activate') {
+          graphRenderer.activateNode(event.nodeId);
+        } else if (event.type === 'context_loaded') {
+          graphStatusEl.textContent = 'Context loaded \u2014 agent has full awareness';
+        } else if (event.type === 'highlight') {
+          graphRenderer.highlightNode(event.nodeId);
+        } else if (event.type === 'error') {
+          graphStatusEl.textContent = 'Graph: ' + (event.message || 'unavailable');
+          console.warn('[SSE] Graph error:', event.message);
+        }
+      };
+
+      eventSource.onerror = (err) => {
+        console.warn('[SSE] EventSource error, closing', err);
+        if (eventSource) {
+          eventSource.close();
+          eventSource = null;
+        }
+      };
+    }
+
+    function cleanup() {
+      if (eventSource) { eventSource.close(); eventSource = null; }
+      if (pingInterval) clearInterval(pingInterval);
+      pingInterval = null;
+      if (dataChannel) dataChannel.close();
+      dataChannel = null;
+      if (pc) {
+        pc.getSenders().forEach(s => { if (s.track) s.track.stop(); });
+        pc.close();
+      }
+      pc = null;
+      pcId = null;
+      audioIndicator.classList.remove('active');
+      connectBtn.disabled = false;
+      connectBtn.style.display = 'block';
+      disconnectBtn.style.display = 'none';
+    }
+
+    function disconnect() {
+      cleanup();
+      setStatus('Disconnected');
+    }
+
+    connectBtn.addEventListener('click', connect);
+    disconnectBtn.addEventListener('click', disconnect);
+
+    // -----------------------------------------------------------------------
+    // 3D Graph Renderer — CSS 3D nodes + Canvas edges
+    // -----------------------------------------------------------------------
+    const TYPE_COLORS = {
+      Customer:        { hex: '#f59e0b', rgb: '245,158,11' },
+      FlightOperation: { hex: '#3b82f6', rgb: '59,130,246' },
+      Baggage:         { hex: '#10b981', rgb: '16,185,129' },
+      Rebooking:       { hex: '#8b5cf6', rgb: '139,92,246' },
+      Communication:   { hex: '#f97316', rgb: '249,115,22' },
+    };
+    const HIGHLIGHT_COLOR = '#00e5ff';
+    const HIGHLIGHT_RGB = '0,229,255';
+    const NODE_ICONS = {
+      Customer: '\u{1F464}',
+      FlightOperation: '\u2708\uFE0F',
+      Baggage: '\u{1F9F3}',
+      Rebooking: '\u{1F504}',
+      Communication: '\u2709\uFE0F',
+    };
+
+    // Fixed 3D layout — layered pyramid receding into screen
+    // Positions are percentage-based (x%, y%) + z in px
+    const LAYOUT_MAP = {
+      Customer:        [{ xPct: 50, yPct: 48, z: 0 }],
+      FlightOperation: [{ xPct: 30, yPct: 28, z: -200 }, { xPct: 70, yPct: 28, z: -200 }],
+      Baggage:         [{ xPct: 25, yPct: 58, z: -350 }],
+      Rebooking:       [{ xPct: 75, yPct: 58, z: -350 }],
+      Communication:   [{ xPct: 35, yPct: 78, z: -500 }, { xPct: 65, yPct: 78, z: -500 }],
+    };
+
+    class GraphRenderer {
+      constructor(worldId, canvasId) {
+        this.world = document.getElementById(worldId);
+        this.canvas = document.getElementById(canvasId);
+        this.ctx = this.canvas.getContext('2d');
+        this.scene = this.canvas.parentElement;
+        this.nodes = [];       // { id, type, el, ... }
+        this.edges = [];       // { source, target, label, progress, active, ... }
+        this.nodeMap = {};
+        this.activeNodes = new Set();
+        this._highlightGen = 0;
+        this._animFrame = null;
+        this._edgeAnimations = []; // active edge animations
+
+        // Parallax state
+        this._rotX = 0;
+        this._rotY = 0;
+        this._targetRotX = 0;
+        this._targetRotY = 0;
+        this._mouseInScene = false;
+        this._lastMouseMove = 0;
+        this._autoRotAngle = 0;
+
+        this.dpr = window.devicePixelRatio || 1;
+
+        this._resize();
+        window.addEventListener('resize', () => this._resize());
+
+        // Mouse parallax
+        this.scene.addEventListener('mousemove', (e) => {
+          const rect = this.scene.getBoundingClientRect();
+          const nx = (e.clientX - rect.left) / rect.width - 0.5;  // -0.5 to 0.5
+          const ny = (e.clientY - rect.top) / rect.height - 0.5;
+          this._targetRotY = nx * 12;  // +-6 degrees
+          this._targetRotX = -ny * 8;  // +-4 degrees
+          this._mouseInScene = true;
+          this._lastMouseMove = performance.now();
+        });
+
+        this.scene.addEventListener('mouseleave', () => {
+          this._mouseInScene = false;
+        });
+
+        this._renderLoop();
+      }
+
+      _resize() {
+        const rect = this.scene.getBoundingClientRect();
+        this.width = rect.width;
+        this.height = rect.height;
+        this.canvas.width = rect.width * this.dpr;
+        this.canvas.height = rect.height * this.dpr;
+        this.canvas.style.width = rect.width + 'px';
+        this.canvas.style.height = rect.height + 'px';
+        this.ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
+
+        // Re-position nodes if loaded
+        this.nodes.forEach(n => this._positionNode(n));
+      }
+
+      reset() {
+        // Remove node divs
+        this.world.innerHTML = '';
+        this.nodes = [];
+        this.edges = [];
+        this.nodeMap = {};
+        this.activeNodes.clear();
+        this._edgeAnimations = [];
+        this._highlightGen = 0;
+        this._autoRotAngle = 0;
+        this.ctx.clearRect(0, 0, this.width, this.height);
+        document.getElementById('graphPlaceholder').style.display = 'flex';
+        document.getElementById('graphLegend').style.display = 'none';
+        document.getElementById('graphStatus').textContent = 'Waiting for connection...';
+      }
+
+      loadGraph(data) {
+        this.world.innerHTML = '';
+        this.nodes = [];
+        this.edges = [];
+        this.nodeMap = {};
+        this.activeNodes.clear();
+        this._edgeAnimations = [];
+
+        // Group incoming nodes by type
+        const groups = {};
+        data.nodes.forEach(n => {
+          if (!groups[n.type]) groups[n.type] = [];
+          groups[n.type].push(n);
+        });
+
+        // Create node divs with 3D positions
+        const typeOrder = ['Customer', 'FlightOperation', 'Baggage', 'Rebooking', 'Communication'];
+        typeOrder.forEach(type => {
+          const group = groups[type] || [];
+          const layouts = LAYOUT_MAP[type] || [];
+          group.forEach((n, i) => {
+            const layout = layouts[i] || layouts[0] || { xPct: 50, yPct: 50, z: 0 };
+            const color = TYPE_COLORS[n.type] || TYPE_COLORS.Customer;
+
+            const el = document.createElement('div');
+            el.className = `graph-node ${type === 'Customer' ? 'size-lg' : 'size-sm'} inactive`;
+            el.style.setProperty('--node-color', color.hex);
+            el.style.setProperty('--node-color-alpha', `rgba(${color.rgb}, 0.4)`);
+            el.style.setProperty('--node-color-alpha-dim', `rgba(${color.rgb}, 0.15)`);
+
+            // Icon
+            const icon = document.createElement('span');
+            icon.className = 'node-icon';
+            icon.textContent = NODE_ICONS[type] || '?';
+            el.appendChild(icon);
+
+            // Label
+            const label = document.createElement('span');
+            label.className = 'node-label';
+            label.textContent = n.label;
+            el.appendChild(label);
+
+            // Sublabel
+            if (n.sublabel) {
+              const sub = document.createElement('span');
+              sub.className = 'node-sublabel';
+              sub.textContent = n.sublabel;
+              el.appendChild(sub);
+            }
+
+            // Alert badge
+            if (n.alert) {
+              const alert = document.createElement('span');
+              alert.className = 'node-alert';
+              alert.textContent = 'Cancelled';
+              el.appendChild(alert);
+            }
+
+            // Start slightly offset for entrance animation
+            const startZ = layout.z - 80;
+            el.style.setProperty('--x', `${layout.xPct / 100 * this.width}px`);
+            el.style.setProperty('--y', `${layout.yPct / 100 * this.height}px`);
+            el.style.setProperty('--z', `${startZ}px`);
+
+            this.world.appendChild(el);
+
+            const node = {
+              id: n.id,
+              type: n.type,
+              el: el,
+              xPct: layout.xPct,
+              yPct: layout.yPct,
+              z: layout.z,
+              alert: n.alert || false,
+            };
+            this.nodes.push(node);
+            this.nodeMap[n.id] = node;
+
+            // Spring entrance — ease to final z after a staggered delay
+            requestAnimationFrame(() => {
+              el.style.setProperty('--z', `${layout.z}px`);
+            });
+          });
+        });
+
+        // Build edges
+        data.edges.forEach(e => {
+          const src = this.nodeMap[e.source];
+          const tgt = this.nodeMap[e.target];
+          if (src && tgt) {
+            this.edges.push({
+              source: src,
+              target: tgt,
+              label: e.label,
+              progress: 0,
+              active: false,
+              highlighted: false,
+              activateTime: 0,
+            });
+          }
+        });
+      }
+
+      _positionNode(node) {
+        const x = node.xPct / 100 * this.width;
+        const y = node.yPct / 100 * this.height;
+        node.el.style.setProperty('--x', `${x}px`);
+        node.el.style.setProperty('--y', `${y}px`);
+        node.el.style.setProperty('--z', `${node.z}px`);
+      }
+
+      activateNode(nodeId) {
+        const node = this.nodeMap[nodeId];
+        if (!node) return;
+        this.activeNodes.add(nodeId);
+        node.el.classList.remove('inactive', 'dimmed');
+        node.el.classList.add('active');
+      }
+
+      animateTraversal(fromId, toId, label) {
+        this.activateNode(toId);
+
+        const edge = this.edges.find(
+          e => e.source === this.nodeMap[fromId] && e.target === this.nodeMap[toId]
+        );
+        if (edge) {
+          edge.active = true;
+          edge.activateTime = performance.now();
+          edge.progress = 0;
+        }
+      }
+
+      highlightNode(nodeId) {
+        const node = this.nodeMap[nodeId];
+        if (!node) return;
+
+        // Clear previous highlights
+        this.nodes.forEach(n => {
+          n.el.classList.remove('highlighted', 'dimmed');
+          // Restore to active or inactive
+          if (this.activeNodes.has(n.id)) {
+            n.el.classList.add('active');
+          }
+        });
+        this.edges.forEach(e => { e.highlighted = false; });
+
+        // Highlight target node
+        this.activeNodes.add(nodeId);
+        node.el.classList.remove('inactive', 'active');
+        node.el.classList.add('highlighted');
+
+        // Highlight connected edges and partner nodes; dim everything else
+        const connectedIds = new Set([nodeId]);
+        this.edges.forEach(edge => {
+          if (edge.target === node || edge.source === node) {
+            edge.highlighted = true;
+            const other = edge.target === node ? edge.source : edge.target;
+            connectedIds.add(other.id);
+            this.activeNodes.add(other.id);
+            other.el.classList.remove('inactive', 'dimmed');
+            other.el.classList.add('highlighted');
+          }
+        });
+
+        // Dim non-connected active nodes
+        this.nodes.forEach(n => {
+          if (!connectedIds.has(n.id)) {
+            n.el.classList.add('dimmed');
+          }
+        });
+
+        // Auto-clear after 3s
+        const gen = ++this._highlightGen;
+        setTimeout(() => {
+          if (this._highlightGen !== gen) return;
+          this.nodes.forEach(n => {
+            n.el.classList.remove('highlighted', 'dimmed');
+            if (this.activeNodes.has(n.id)) {
+              n.el.classList.add('active');
+            }
+          });
+          this.edges.forEach(e => { e.highlighted = false; });
+        }, 3000);
+      }
+
+      _renderLoop() {
+        this._updateRotation();
+        this._drawEdges();
+        requestAnimationFrame(() => this._renderLoop());
+      }
+
+      _updateRotation() {
+        const now = performance.now();
+        const idleThreshold = 2000; // ms
+
+        if (!this._mouseInScene && (now - this._lastMouseMove) > idleThreshold) {
+          // Auto-rotation when idle
+          this._autoRotAngle += 0.015; // ~1 deg/sec at 60fps (0.015 * 60 ≈ 0.9 deg)
+          this._targetRotY = Math.sin(this._autoRotAngle) * 4;
+          this._targetRotX = Math.sin(this._autoRotAngle * 0.7) * 2;
+        }
+
+        // Smooth interpolation
+        this._rotX += (this._targetRotX - this._rotX) * 0.08;
+        this._rotY += (this._targetRotY - this._rotY) * 0.08;
+
+        this.world.style.transform = `rotateX(${this._rotX}deg) rotateY(${this._rotY}deg)`;
+      }
+
+      _drawEdges() {
+        const ctx = this.ctx;
+        const now = performance.now();
+        ctx.clearRect(0, 0, this.width, this.height);
+
+        if (this.edges.length === 0) return;
+
+        const anyHighlighted = this.nodes.some(n => n.el.classList.contains('highlighted'));
+
+        this.edges.forEach(edge => {
+          // Get projected screen positions from node divs
+          const srcRect = edge.source.el.getBoundingClientRect();
+          const tgtRect = edge.target.el.getBoundingClientRect();
+          const sceneRect = this.scene.getBoundingClientRect();
+
+          const sx = srcRect.left + srcRect.width / 2 - sceneRect.left;
+          const sy = srcRect.top + srcRect.height / 2 - sceneRect.top;
+          const tx = tgtRect.left + tgtRect.width / 2 - sceneRect.left;
+          const ty = tgtRect.top + tgtRect.height / 2 - sceneRect.top;
+
+          // Bezier control point — offset perpendicular to the line
+          const mx = (sx + tx) / 2;
+          const my = (sy + ty) / 2;
+          const dx = tx - sx;
+          const dy = ty - sy;
+          const len = Math.sqrt(dx * dx + dy * dy) || 1;
+          const perpX = -dy / len;
+          const perpY = dx / len;
+          const curveOffset = len * 0.15; // 15% of line length
+          const cpx = mx + perpX * curveOffset;
+          const cpy = my + perpY * curveOffset;
+
+          // Depth-based line width and opacity
+          const srcZ = edge.source.z;
+          const tgtZ = edge.target.z;
+          const avgZ = (srcZ + tgtZ) / 2;
+          const depthFactor = 1 + avgZ / 1200; // z=0 → 1.0, z=-500 → 0.58
+          const baseWidth = 2.5 * depthFactor;
+          const baseOpacity = 0.3 + 0.5 * depthFactor;
+
+          const color = TYPE_COLORS[edge.target.type] || TYPE_COLORS.Customer;
+
+          if (edge.active) {
+            // Animate progress
+            const elapsed = now - edge.activateTime;
+            edge.progress = Math.min(1, elapsed / 500);
+
+            const isHL = edge.highlighted;
+            const dimmed = anyHighlighted && !isHL;
+
+            const edgeColor = isHL ? HIGHLIGHT_COLOR : color.hex;
+            const lineWidth = isHL ? baseWidth * 1.8 : baseWidth;
+            const alpha = dimmed ? 0.1 : (isHL ? 1.0 : baseOpacity);
+
+            ctx.save();
+            ctx.strokeStyle = edgeColor;
+            ctx.lineWidth = lineWidth;
+            ctx.shadowColor = edgeColor;
+            ctx.shadowBlur = isHL ? 20 : 8;
+            ctx.globalAlpha = alpha;
+
+            // Draw partial bezier for traversal animation
+            ctx.beginPath();
+            this._drawPartialQuadBezier(ctx, sx, sy, cpx, cpy, tx, ty, edge.progress);
+            ctx.stroke();
+            ctx.restore();
+
+            // Edge label at midpoint when fully drawn
+            if (edge.progress >= 1 && edge.label) {
+              ctx.save();
+              ctx.font = '10px sans-serif';
+              ctx.fillStyle = isHL ? HIGHLIGHT_COLOR : '#666';
+              ctx.globalAlpha = dimmed ? 0.1 : (isHL ? 0.9 : 0.6);
+              ctx.textAlign = 'center';
+              // Label at bezier midpoint (t=0.5)
+              const labelX = 0.25 * sx + 0.5 * cpx + 0.25 * tx;
+              const labelY = 0.25 * sy + 0.5 * cpy + 0.25 * ty;
+              ctx.fillText(edge.label, labelX, labelY - 8);
+              ctx.restore();
+            }
+          } else {
+            // Inactive edge — very dim dashed
+            ctx.save();
+            ctx.strokeStyle = '#1a1a1a';
+            ctx.lineWidth = 1;
+            ctx.globalAlpha = 0.3;
+            ctx.beginPath();
+            ctx.moveTo(sx, sy);
+            ctx.quadraticCurveTo(cpx, cpy, tx, ty);
+            ctx.stroke();
+            ctx.restore();
+          }
+        });
+      }
+
+      _drawPartialQuadBezier(ctx, x0, y0, cpx, cpy, x1, y1, t) {
+        // Draw a quadratic bezier from t=0 to t=progress using de Casteljau subdivision
+        if (t >= 1) {
+          ctx.moveTo(x0, y0);
+          ctx.quadraticCurveTo(cpx, cpy, x1, y1);
+          return;
+        }
+
+        // de Casteljau split at parameter t
+        const cp1x = x0 + (cpx - x0) * t;
+        const cp1y = y0 + (cpy - y0) * t;
+        const cp2x = cpx + (x1 - cpx) * t;
+        const cp2y = cpy + (y1 - cpy) * t;
+        const endX = cp1x + (cp2x - cp1x) * t;
+        const endY = cp1y + (cp2y - cp1y) * t;
+
+        ctx.moveTo(x0, y0);
+        ctx.quadraticCurveTo(cp1x, cp1y, endX, endY);
+      }
+    }
+
+    const graphRenderer = new GraphRenderer('graphWorld', 'edgeCanvas');
+  </script>
+</body>
+</html>
