@@ -493,8 +493,24 @@
       try {
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
 
+        // Fetch fresh TURN credentials from the backend (Twilio NTS)
+        let iceServers = [{ urls: 'stun:stun.l.google.com:19302' }];
+        try {
+          const iceRes = await fetch('/api/ice');
+          if (iceRes.ok) {
+            const body = await iceRes.json();
+            if (body.iceServers && body.iceServers.length) {
+              iceServers = body.iceServers;
+              console.log('[ICE] Using', iceServers.length, 'servers from backend');
+            }
+          }
+        } catch (e) {
+          console.warn('[ICE] Failed to fetch, using STUN only', e);
+        }
+
         pc = new RTCPeerConnection({
-          iceServers: [{ urls: 'stun:stun.l.google.com:19302' }],
+          iceServers,
+          iceTransportPolicy: 'relay',  // force TURN-only to avoid private-IP issues
         });
 
         stream.getTracks().forEach(track => pc.addTrack(track, stream));
@@ -560,7 +576,7 @@
         pcId = answer.pc_id;
         await pc.setRemoteDescription(answer);
 
-        // Connect to SSE for graph events
+        // Start polling for graph events
         if (useKg) {
           connectGraphSSE(pcId);
         }
@@ -579,12 +595,7 @@
 
       graphStatusEl.textContent = 'Connecting to graph...';
 
-      eventSource = new EventSource(`/api/graph/events/${encodeURIComponent(sessionPcId)}`);
-
-      eventSource.onmessage = (e) => {
-        console.log('[SSE]', e.data);
-        const event = JSON.parse(e.data);
-
+      const handleEvent = (event) => {
         if (event.type === 'graph') {
           placeholder.style.display = 'none';
           legend.style.display = 'flex';
@@ -598,23 +609,34 @@
           graphStatusEl.textContent = 'Context loaded \u2014 agent has full awareness';
         } else if (event.type === 'highlight') {
           graphRenderer.highlightNode(event.nodeId);
-        } else if (event.type === 'error') {
-          graphStatusEl.textContent = 'Graph: ' + (event.message || 'unavailable');
-          console.warn('[SSE] Graph error:', event.message);
         }
       };
 
-      eventSource.onerror = (err) => {
-        console.warn('[SSE] EventSource error, closing', err);
-        if (eventSource) {
-          eventSource.close();
-          eventSource = null;
+      const poll = async () => {
+        try {
+          const res = await fetch(`/api/graph/poll?pc_id=${encodeURIComponent(sessionPcId)}`);
+          if (!res.ok) return;
+          const body = await res.json();
+          if (body.events && body.events.length > 0) {
+            console.log('[POLL]', body.events.length, 'events');
+            for (const ev of body.events) handleEvent(ev);
+          }
+          if (body.closed) {
+            clearInterval(eventSource);
+            eventSource = null;
+          }
+        } catch (err) {
+          console.warn('[POLL] error', err);
         }
       };
+
+      // Reuse eventSource variable to hold interval id for cleanup parity
+      eventSource = setInterval(poll, 250);
+      poll();  // immediate first poll
     }
 
     function cleanup() {
-      if (eventSource) { eventSource.close(); eventSource = null; }
+      if (eventSource) { clearInterval(eventSource); eventSource = null; }
       if (pingInterval) clearInterval(pingInterval);
       pingInterval = null;
       if (dataChannel) dataChannel.close();

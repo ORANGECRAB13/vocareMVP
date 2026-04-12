@@ -8,7 +8,9 @@ for each session.
 import argparse
 import asyncio
 import json
+import logging
 import os
+import sys
 from contextlib import asynccontextmanager
 from typing import Dict
 
@@ -18,6 +20,116 @@ from fastapi import BackgroundTasks, FastAPI, Request
 from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from loguru import logger
+
+# ---------------------------------------------------------------------------
+# CRITICAL FIX: aioice does NOT handle TURN DATA indications (RFC 5766 §7.2).
+# When the phone sends STUN binding checks through its TURN relay, Twilio
+# forwards them to the bot's TURN allocation as DATA indications. aioice only
+# handles ChannelData (bound channels) and STUN responses — DATA indications
+# are logged then DROPPED, so the bot never responds to the phone's checks
+# and ICE times out after 60s.
+#
+# Fix: monkey-patch TurnClientMixin.datagram_received to extract the payload
+# from DATA indications and forward it to the ICE layer.
+# Also register the missing DATA attribute (0x0013) in aioice's STUN parser.
+# ---------------------------------------------------------------------------
+import struct
+from typing import cast, Union
+
+from aioice import stun as _stun_mod
+from aioice import turn as _turn_mod
+from aioice.ice import TransportPolicy
+import aiortc.rtcicetransport as _ice_mod
+
+# 1) Register DATA attribute (0x0013) — aioice's STUN parser doesn't know it
+if 0x0013 not in _stun_mod.ATTRIBUTES_BY_TYPE:
+    _data_attr = (0x0013, "DATA", _stun_mod.pack_bytes, _stun_mod.unpack_bytes)
+    _stun_mod.ATTRIBUTES_BY_TYPE[0x0013] = _data_attr
+    _stun_mod.ATTRIBUTES_BY_NAME["DATA"] = _data_attr
+    logger.info("Registered missing STUN DATA attribute (0x0013) in aioice")
+
+
+# 2) Monkey-patch TurnClientMixin.datagram_received to handle DATA indications
+def _patched_datagram_received(self, data: Union[bytes, str], addr: tuple) -> None:
+    data = cast(bytes, data)
+
+    # Demultiplex ChannelData (existing logic — bound channels)
+    if len(data) >= 4 and _turn_mod.is_channel_data(data):
+        channel, length = struct.unpack("!HH", data[0:4])
+        if len(data) >= length + 4 and self.receiver is not None:
+            peer_address = self.channel_to_peer.get(channel)
+            if peer_address:
+                payload = data[4 : 4 + length]
+                self.receiver.datagram_received(payload, peer_address)
+        return
+
+    try:
+        message = _stun_mod.parse_message(data)
+    except ValueError:
+        return
+
+    # ── NEW: Handle DATA indication (RFC 5766 §7.2) ──────────────────────
+    # Extracts XOR-PEER-ADDRESS + DATA payload and forwards to ICE layer,
+    # exactly like ChannelData does for bound channels.
+    if (
+        message.message_method == _stun_mod.Method.DATA
+        and message.message_class == _stun_mod.Class.INDICATION
+    ):
+        peer_address = message.attributes.get("XOR-PEER-ADDRESS")
+        payload = message.attributes.get("DATA")
+        if peer_address and payload is not None and self.receiver is not None:
+            self.receiver.datagram_received(payload, peer_address)
+        return
+
+    # Handle STUN responses/errors for pending transactions (existing logic)
+    if (
+        message.message_class == _stun_mod.Class.RESPONSE
+        or message.message_class == _stun_mod.Class.ERROR
+    ) and message.transaction_id in self.transactions:
+        transaction = self.transactions[message.transaction_id]
+        transaction.response_received(message, addr)
+
+
+_turn_mod.TurnClientMixin.datagram_received = _patched_datagram_received
+logger.info("Monkey-patched aioice: TurnClientMixin now handles DATA indications")
+
+
+# 3) Force relay-only ICE transport policy on the bot side
+_orig_connection_kwargs = _ice_mod.connection_kwargs
+
+
+def _relay_only_connection_kwargs(servers):
+    kwargs = _orig_connection_kwargs(servers)
+    kwargs["transport_policy"] = TransportPolicy.RELAY
+    return kwargs
+
+
+_ice_mod.connection_kwargs = _relay_only_connection_kwargs
+logger.info("Monkey-patched aiortc: bot ICE transport policy forced to RELAY-only")
+
+# ---------------------------------------------------------------------------
+# Route aioice / aiortc stdlib logs through loguru
+# ---------------------------------------------------------------------------
+
+
+class _InterceptHandler(logging.Handler):
+    def emit(self, record):
+        try:
+            level = logger.level(record.levelname).name
+        except ValueError:
+            level = record.levelno
+        frame, depth = sys._getframe(6), 6
+        while frame and frame.f_code.co_filename == logging.__file__:
+            frame = frame.f_back
+            depth += 1
+        logger.opt(depth=depth, exception=record.exc_info).log(level, record.getMessage())
+
+
+for _name in ("aioice", "aiortc"):
+    _logger = logging.getLogger(_name)
+    _logger.handlers = [_InterceptHandler()]
+    _logger.setLevel(logging.DEBUG)
+    _logger.propagate = False
 
 from pipecat.adapters.schemas.function_schema import FunctionSchema
 from pipecat.adapters.schemas.tools_schema import ToolsSchema
@@ -33,7 +145,7 @@ from pipecat.processors.aggregators.llm_response_universal import (
     LLMUserAggregatorParams,
 )
 from pipecat.processors.frame_processor import FrameDirection
-from pipecat.services.ai_services import LLMService
+from pipecat.services.llm_service import LLMService
 from pipecat.services.llm_service import FunctionCallParams
 from pipecat.transports.base_transport import TransportParams
 from pipecat.transports.smallwebrtc.connection import IceServer, SmallWebRTCConnection
@@ -122,9 +234,66 @@ def create_tts(name: str):
 pcs_map: Dict[str, SmallWebRTCConnection] = {}
 graph_event_queues: Dict[str, asyncio.Queue] = {}
 
-ice_servers = [
-    IceServer(urls="stun:stun.l.google.com:19302"),
-]
+def fetch_twilio_ice_servers():
+    """Fetch fresh TURN credentials from Twilio Network Traversal Service.
+
+    Returns a list of IceServer objects (for aiortc) plus the raw dicts
+    (for the frontend). Falls back to STUN-only if Twilio not configured.
+    """
+    import base64
+    import urllib.request
+
+    sid = os.getenv("TWILIO_ACCOUNT_SID")
+    token = os.getenv("TWILIO_AUTH_TOKEN")
+    if not sid or not token:
+        logger.warning("Twilio credentials missing — falling back to STUN only")
+        stun = [{"urls": "stun:stun.l.google.com:19302"}]
+        return [IceServer(urls="stun:stun.l.google.com:19302")], stun
+
+    try:
+        url = f"https://api.twilio.com/2010-04-01/Accounts/{sid}/Tokens.json"
+        auth = base64.b64encode(f"{sid}:{token}".encode()).decode()
+        req = urllib.request.Request(
+            url,
+            data=b"",  # POST with empty body
+            headers={"Authorization": f"Basic {auth}"},
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            data = json.loads(resp.read())
+
+        raw_servers = data.get("ice_servers", [])
+        ice_list = []
+        for s in raw_servers:
+            urls = s.get("url") or s.get("urls")
+            if not urls:
+                continue
+            ice_list.append(
+                IceServer(
+                    urls=urls,
+                    username=s.get("username"),
+                    credential=s.get("credential"),
+                )
+            )
+        # Normalize for frontend: use "urls" key
+        frontend_servers = [
+            {
+                "urls": s.get("url") or s.get("urls"),
+                **({"username": s["username"]} if s.get("username") else {}),
+                **({"credential": s["credential"]} if s.get("credential") else {}),
+            }
+            for s in raw_servers
+        ]
+        logger.info(f"Fetched {len(ice_list)} ICE servers from Twilio")
+        return ice_list, frontend_servers
+    except Exception as e:
+        logger.error(f"Failed to fetch Twilio ICE servers: {e}")
+        stun = [{"urls": "stun:stun.l.google.com:19302"}]
+        return [IceServer(urls="stun:stun.l.google.com:19302")], stun
+
+
+# Fetched fresh on each /api/offer so credentials are always valid.
+ice_servers = [IceServer(urls="stun:stun.l.google.com:19302")]
 
 
 neo4j_driver = None
@@ -514,9 +683,23 @@ async def index():
         return HTMLResponse(content=f.read())
 
 
+@app.get("/api/ice")
+async def get_ice_servers():
+    """Return fresh TURN/STUN credentials for the frontend RTCPeerConnection."""
+    _, frontend_servers = fetch_twilio_ice_servers()
+    return {"iceServers": frontend_servers}
+
+
 @app.post("/api/offer")
 async def offer(request: dict, background_tasks: BackgroundTasks):
     pc_id = request.get("pc_id")
+
+    # Log incoming candidates from the peer (diagnose WebRTC ICE issues)
+    offer_sdp = request.get("sdp", "")
+    candidates = [line.strip() for line in offer_sdp.split("\n") if "candidate" in line]
+    logger.info(f"Peer offered {len(candidates)} candidate line(s):")
+    for c in candidates:
+        logger.info(f"  {c}")
 
     # Extract service selections (defaults if not provided)
     stt_name = request.get("stt", "deepgram")
@@ -533,7 +716,9 @@ async def offer(request: dict, background_tasks: BackgroundTasks):
             restart_pc=request.get("restart_pc", False),
         )
     else:
-        pipecat_connection = SmallWebRTCConnection(ice_servers)
+        # Fetch fresh Twilio ICE servers for this session
+        session_ice_servers, _ = fetch_twilio_ice_servers()
+        pipecat_connection = SmallWebRTCConnection(session_ice_servers)
         await pipecat_connection.initialize(sdp=request["sdp"], type=request["type"])
 
         @pipecat_connection.event_handler("closed")
@@ -546,6 +731,37 @@ async def offer(request: dict, background_tasks: BackgroundTasks):
         )
 
     answer = pipecat_connection.get_answer()
+
+    # Filter the answer SDP to keep ONLY `typ relay` ICE candidates.
+    # The phone uses iceTransportPolicy: 'relay' so it only advertises relay
+    # candidates. By stripping our host/srflx candidates here we guarantee
+    # every candidate pair that forms is a relay↔relay pair routed via
+    # Twilio's TURN servers — no private IPs, no srflx that would fail
+    # CreatePermission on the phone's TURN allocation.
+    filtered_sdp_lines = []
+    kept_candidates = 0
+    dropped_candidates = 0
+    for line in answer["sdp"].split("\r\n"):
+        stripped = line.strip()
+        if stripped.startswith("a=candidate:") or stripped.startswith("candidate:"):
+            if "typ relay" in stripped:
+                filtered_sdp_lines.append(line)
+                kept_candidates += 1
+            else:
+                dropped_candidates += 1
+            continue
+        filtered_sdp_lines.append(line)
+    answer["sdp"] = "\r\n".join(filtered_sdp_lines)
+    logger.info(
+        f"Answer SDP filtered: kept {kept_candidates} relay candidate(s), "
+        f"dropped {dropped_candidates} non-relay candidate(s)"
+    )
+    if kept_candidates == 0:
+        logger.error(
+            "No relay candidates in answer SDP! Bot failed to allocate a TURN "
+            "relay via Twilio — mobile clients will not connect."
+        )
+
     pc_id_value = answer["pc_id"]
     pcs_map[pc_id_value] = pipecat_connection
 
@@ -556,46 +772,29 @@ async def offer(request: dict, background_tasks: BackgroundTasks):
     return answer
 
 
-@app.get("/api/graph/events/{pc_id:path}")
-async def graph_events(pc_id: str):
-    """SSE endpoint streaming live graph traversal events for a session."""
-    logger.info(f"SSE connection requested for pc_id: {pc_id}")
-    logger.info(f"Available queues: {list(graph_event_queues.keys())}")
+@app.get("/api/graph/poll")
+async def graph_poll(pc_id: str):
+    """Polling endpoint — drains queued graph events and returns them as JSON.
 
+    Replaces SSE because Cloudflare free tunnels unreliably buffer/drop
+    streaming responses. Frontend polls this every ~250ms.
+    """
     queue = graph_event_queues.get(pc_id)
-
     if not queue:
-        # Retry briefly — queue may not be registered yet due to timing
-        for _ in range(10):
-            await asyncio.sleep(0.2)
-            queue = graph_event_queues.get(pc_id)
-            if queue:
-                break
+        return {"events": [], "closed": False}
 
-    if not queue:
-        logger.warning(f"No graph event queue found for pc_id: {pc_id}")
-        return StreamingResponse(
-            iter(["data: {\"type\": \"error\", \"message\": \"No session found\"}\n\n"]),
-            media_type="text/event-stream",
-        )
-
-    logger.info(f"SSE stream started for pc_id: {pc_id}")
-
-    async def event_stream():
+    events = []
+    while True:
         try:
-            while True:
-                event = await queue.get()
-                if event is None:
-                    break
-                yield f"data: {json.dumps(event)}\n\n"
-        finally:
+            event = queue.get_nowait()
+        except asyncio.QueueEmpty:
+            break
+        if event is None:
             graph_event_queues.pop(pc_id, None)
+            return {"events": events, "closed": True}
+        events.append(event)
 
-    return StreamingResponse(
-        event_stream(),
-        media_type="text/event-stream",
-        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
-    )
+    return {"events": events, "closed": False}
 
 
 # ---------------------------------------------------------------------------
