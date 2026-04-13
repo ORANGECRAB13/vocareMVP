@@ -120,7 +120,10 @@ def seed_graph(driver):
             MERGE (b4)-[:CHECKED_ON]->(f1)
             """
         )
-    logger.info("Neo4j graph seeded with Von / QF-7731 context graph (temporal + call-readiness + provenance)")
+    logger.info(
+        "Neo4j graph seeded with Von / QF-7731 context graph"
+        " (temporal + call-readiness + provenance)"
+    )
 
 
 def _query_customer_context_sync(driver, booking_ref: str) -> Optional[str]:
@@ -380,7 +383,10 @@ def _query_graph_structure_sync(driver, booking_ref: str) -> Optional[Dict]:
                 "id": cust_id,
                 "type": "Customer",
                 "label": customer["name"],
-                "sublabel": f"Booking {customer['booking_ref']}  \u00b7  {customer['loyalty_tier']} member",
+                "sublabel": (
+                    f"Booking {customer['booking_ref']}"
+                    f"  \u00b7  {customer['loyalty_tier']} member"
+                ),
             }
         )
 
