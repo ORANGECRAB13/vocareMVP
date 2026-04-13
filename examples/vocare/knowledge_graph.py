@@ -483,11 +483,15 @@ def _query_graph_structure_sync(driver, booking_ref: str) -> Optional[Dict]:
                     "label": "Checked on",
                 })
 
-        # Event chain nodes (temporal layer)
+        # Event chain nodes (temporal layer — sorted by timestamp for correct chain order)
         seen_events: set = set()
         prev_event_id = None
-        for e in record["events"]:
-            if e is None or e["id"] in seen_events:
+        sorted_events = sorted(
+            (e for e in record["events"] if e is not None),
+            key=lambda e: e.get("timestamp", ""),
+        )
+        for e in sorted_events:
+            if e["id"] in seen_events:
                 continue
             seen_events.add(e["id"])
             eid = f"event-{e['id']}"
