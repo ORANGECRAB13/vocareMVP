@@ -708,3 +708,57 @@ def build_keyword_map(graph: Dict) -> Dict[str, str]:
                 mapping["transferred"] = nid
 
     return mapping
+
+
+def _query_baggage_context_sync(driver, booking_ref: str) -> Optional[Dict]:
+    """Query baggage for a booking — returns LLM summary and graph node IDs for highlighting.
+
+    Args:
+        driver: Neo4j driver instance.
+        booking_ref: Customer booking reference.
+
+    Returns:
+        Dict with "summary" (str) and "node_ids" (list[str]), or None if no baggage found.
+    """
+    with driver.session() as session:
+        result = session.run(
+            """
+            MATCH (c:Customer {booking_ref: $ref})-[:HAS_BAGGAGE]->(b:Baggage)
+            RETURN collect(b) AS bags
+            """,
+            ref=booking_ref,
+        )
+        record = result.single()
+        if not record or not record["bags"]:
+            return None
+
+        bags = record["bags"]
+        count = len(bags)
+        lines = [f"{count} checked bag{'s' if count != 1 else ''}:"]
+        node_ids = []
+        for i, b in enumerate(bags, 1):
+            status = b.get("status", "unknown")
+            status_str = (
+                "auto-transferred to alternative flight"
+                if status == "transferred"
+                else status
+            )
+            lines.append(
+                f"  Bag {i}: tag {b['tag']}, {b.get('weight_kg', '?')}kg — {status_str}"
+            )
+            node_ids.append(f"baggage-{b['tag']}")
+
+        return {"summary": "\n".join(lines), "node_ids": node_ids}
+
+
+async def query_baggage_context(driver, booking_ref: str) -> Optional[Dict]:
+    """Query baggage for a booking, async-safe.
+
+    Args:
+        driver: Neo4j driver instance.
+        booking_ref: Customer booking reference.
+
+    Returns:
+        Dict with "summary" and "node_ids", or None if not found.
+    """
+    return await asyncio.to_thread(_query_baggage_context_sync, driver, booking_ref)
