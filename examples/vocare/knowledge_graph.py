@@ -23,105 +23,89 @@ def seed_graph(driver):
         session.run(
             """
             // ── Customer ──────────────────────────────────────────────────
-            MERGE (c:Customer {booking_ref: 'QF-7731'})
-            SET c.name = 'Von',
-                c.phone = '+61400000000',
-                c.loyalty_tier = 'Gold'
+            MERGE (c:Customer {booking_ref: 'QF-8200'})
+            SET c.name = 'Jack Smith',
+                c.phone = '+61412345678',
+                c.loyalty_tier = 'Silver'
 
-            // ── Flights ───────────────────────────────────────────────────
-            MERGE (f1:FlightOperation {flight_number: 'QF107'})
-            SET f1.route = 'SYD-GUM',
+            // ── Cancelled flight ───────────────────────────────────────────
+            MERGE (f1:FlightOperation {flight_number: 'QF82'})
+            SET f1.route = 'SYD-MEL',
                 f1.status = 'CANCELLED',
-                f1.reason = 'hydraulic fault on VH-OQF',
-                f1.scheduled_time = '2026-04-14T08:30',
-                f1.description = 'Sydney to Guam, cancelled due to maintenance hold'
+                f1.reason = 'engineering fault on aircraft',
+                f1.scheduled_time = '2026-04-14T22:30',
+                f1.description = 'Sydney to Melbourne, cancelled — engineering hold'
 
-            MERGE (f2:FlightOperation {flight_number: 'QF821'})
-            SET f2.route = 'GUM-HNL',
-                f2.status = 'DISRUPTED',
-                f2.reason = 'missed connection due to QF107 cancellation',
-                f2.scheduled_time = '2026-04-14T14:15',
-                f2.description = 'Guam to Honolulu, disrupted by upstream cancellation'
-
-            MERGE (f3:FlightOperation {flight_number: 'QF815'})
-            SET f3.route = 'HNL-SFO',
-                f3.status = 'operated',
-                f3.reason = NULL,
-                f3.scheduled_time = '2026-04-15T09:00',
-                f3.description = 'Honolulu to San Francisco, unaffected'
-
-            // ── Alternative flight (Rebooking node type) ──────────────────
-            MERGE (r1:Rebooking {alt_flight: 'QF109'})
-            SET r1.route = 'SYD-HNL-SFO',
-                r1.departure = '2026-04-14T23:40',
+            // ── Rescheduled departure (next morning) ───────────────────────
+            MERGE (r1:Rebooking {alt_flight: 'QF83'})
+            SET r1.route = 'SYD-MEL',
+                r1.departure = '2026-04-15T06:00',
                 r1.seats_available = 1,
-                r1.cabin = 'business',
-                r1.note = 'upgrade eligible as Gold member'
+                r1.cabin = 'economy',
+                r1.note = 'rescheduled — engineering delay, confirmed seat'
 
-            // ── Baggage (4 bags, all auto-transferred) ────────────────────
-            MERGE (b1:Baggage {tag: 'QF77310001'})
-            SET b1.destination = 'SFO', b1.location = 'SYD terminal',
-                b1.status = 'transferred', b1.weight_kg = 22.3
+            // ── Baggage — intercepted before loading ───────────────────────
+            MERGE (b1:Baggage {tag: 'QF82001'})
+            SET b1.destination = 'MEL',
+                b1.location = 'Terminal 3 Secure Facility',
+                b1.last_scan = 'Carousel 4 — intercepted before loading',
+                b1.status = 'held_secure',
+                b1.weight_kg = 24.5
 
-            MERGE (b2:Baggage {tag: 'QF77310002'})
-            SET b2.destination = 'SFO', b2.location = 'SYD terminal',
-                b2.status = 'transferred', b2.weight_kg = 18.7
+            // ── Communications — hotel + SMS ──────────────────────────────
+            MERGE (comm1:Communication {channel: 'Hotel', sent_at: '2026-04-14T22:45'})
+            SET comm1.message = 'Rydges Airport Hotel booked — engineering delay accommodation'
 
-            MERGE (b3:Baggage {tag: 'QF77310003'})
-            SET b3.destination = 'SFO', b3.location = 'SYD terminal',
-                b3.status = 'transferred', b3.weight_kg = 15.0
-
-            MERGE (b4:Baggage {tag: 'QF77310004'})
-            SET b4.destination = 'SFO', b4.location = 'SYD terminal',
-                b4.status = 'transferred', b4.weight_kg = 9.2
+            MERGE (comm2:Communication {channel: 'SMS', sent_at: '2026-04-14T22:46'})
+            SET comm2.message = 'Digital hotel voucher + $50 meal allowance sent to +61412345678'
 
             // ── LAYER 1: Event chain (temporal provenance) ─────────────────
             MERGE (e1:Event {id: 'evt-001'})
             SET e1.type = 'FLIGHT_CANCELLED',
-                e1.timestamp = '2026-04-14T06:15',
-                e1.description = 'QF107 grounded — hydraulic fault VH-OQF'
+                e1.timestamp = '2026-04-14T22:15',
+                e1.description = 'QF82 grounded — engineering fault on aircraft'
 
             MERGE (e2:Event {id: 'evt-002'})
-            SET e2.type = 'CONNECTION_BROKEN',
-                e2.timestamp = '2026-04-14T06:17',
-                e2.description = 'QF821 GUM→HNL missed — downstream of QF107'
+            SET e2.type = 'BAGGAGE_INTERCEPTED',
+                e2.timestamp = '2026-04-14T22:25',
+                e2.description = 'Bag intercepted at Carousel 4 — held in Terminal 3 Secure Facility'
 
             MERGE (e3:Event {id: 'evt-003'})
-            SET e3.type = 'BAGS_AUTO_TRANSFERRED',
-                e3.timestamp = '2026-04-14T06:45',
-                e3.description = '4 bags rerouted to QF109 SYD→HNL→SFO'
+            SET e3.type = 'ACCOMMODATION_ARRANGED',
+                e3.timestamp = '2026-04-14T22:40',
+                e3.description = 'Rydges Airport Hotel booked — engineering delay coverage'
+
+            MERGE (e4:Event {id: 'evt-004'})
+            SET e4.type = 'PASSENGER_NOTIFIED',
+                e4.timestamp = '2026-04-14T22:46',
+                e4.description = 'SMS sent: hotel voucher + $50 meal allowance'
 
             MERGE (e1)-[:TRIGGERED]->(e2)
             MERGE (e2)-[:TRIGGERED]->(e3)
+            MERGE (e3)-[:TRIGGERED]->(e4)
             MERGE (c)-[:EXPERIENCED]->(e1)
 
             // ── LAYER 2: CallContext node (call-readiness brief) ───────────
-            MERGE (ctx:CallContext {booking_ref: 'QF-7731'})
-            SET ctx.primary_issue = 'QF107 cancellation cascades to QF821 disruption',
-                ctx.recommended_action = 'Offer QF109 SYD→HNL→SFO Business, 23:40 tonight',
-                ctx.loyalty_flag = 'Gold — upgrade eligible',
-                ctx.baggage_status = '4 bags auto-transferred to QF109, no action needed',
+            MERGE (ctx:CallContext {booking_ref: 'QF-8200'})
+            SET ctx.primary_issue = 'QF82 SYD→MEL cancelled — engineering fault on aircraft',
+                ctx.recommended_action = 'Rebook to QF83 06:00 tomorrow — hotel already arranged',
+                ctx.loyalty_flag = 'Silver — standard engineering delay entitlements apply',
+                ctx.baggage_status = 'Held in Terminal 3 Secure Facility, auto-loads to QF83',
                 ctx.urgency = 'HIGH'
 
             MERGE (c)-[:HAS_CALL_CONTEXT]->(ctx)
 
             // ── Core relationships (with LAYER 3: provenance source) ───────
-            MERGE (c)-[:HAS_FLIGHT {source: 'Qantas OpsDB', fetched_at: '2026-04-14T06:00'}]->(f1)
-            MERGE (c)-[:HAS_FLIGHT {source: 'Qantas OpsDB', fetched_at: '2026-04-14T06:00'}]->(f2)
-            MERGE (c)-[:HAS_FLIGHT {source: 'Qantas OpsDB', fetched_at: '2026-04-14T06:00'}]->(f3)
-            MERGE (c)-[:HAS_REBOOKING_OPTION {source: 'Inventory API', fetched_at: '2026-04-14T06:50'}]->(r1)
-            MERGE (c)-[:HAS_BAGGAGE {source: 'Baggage Handling System', fetched_at: '2026-04-14T06:45'}]->(b1)
-            MERGE (c)-[:HAS_BAGGAGE {source: 'Baggage Handling System', fetched_at: '2026-04-14T06:45'}]->(b2)
-            MERGE (c)-[:HAS_BAGGAGE {source: 'Baggage Handling System', fetched_at: '2026-04-14T06:45'}]->(b3)
-            MERGE (c)-[:HAS_BAGGAGE {source: 'Baggage Handling System', fetched_at: '2026-04-14T06:45'}]->(b4)
+            MERGE (c)-[:HAS_FLIGHT {source: 'Qantas OpsDB', fetched_at: '2026-04-14T22:10'}]->(f1)
+            MERGE (c)-[:HAS_REBOOKING_OPTION {source: 'Inventory API', fetched_at: '2026-04-14T22:38'}]->(r1)
+            MERGE (c)-[:HAS_BAGGAGE {source: 'Baggage Handling System', fetched_at: '2026-04-14T22:25'}]->(b1)
             MERGE (b1)-[:CHECKED_ON]->(f1)
-            MERGE (b2)-[:CHECKED_ON]->(f1)
-            MERGE (b3)-[:CHECKED_ON]->(f1)
-            MERGE (b4)-[:CHECKED_ON]->(f1)
+            MERGE (c)-[:RECEIVED_COMM {source: 'Hotel Management System'}]->(comm1)
+            MERGE (c)-[:RECEIVED_COMM {source: 'Qantas Digital Services'}]->(comm2)
             """
         )
     logger.info(
-        "Neo4j graph seeded with Von / QF-7731 context graph"
+        "Neo4j graph seeded with Jack Smith / QF-8200 context graph"
         " (temporal + call-readiness + provenance)"
     )
 
@@ -277,6 +261,9 @@ def _query_booking_by_name_and_route_sync(
 
     codes = re.findall(r"[A-Z]{3}", route_lower.upper())
 
+    # Also check if the input looks like a flight number (e.g. QF82)
+    flight_num_match = re.match(r"^[A-Z]{1,3}\d+$", route_upper.strip())
+
     with driver.session() as session:
         if codes:
             # Match by name + any flight with matching route codes
@@ -291,6 +278,19 @@ def _query_booking_by_name_and_route_sync(
                 """,
                 name=customer_name.strip(),
                 route_pattern=route_pattern,
+            )
+        elif flight_num_match:
+            # Match by name + flight number directly (e.g. "QF82")
+            result = session.run(
+                """
+                MATCH (c:Customer)-[:HAS_FLIGHT]->(f:FlightOperation)
+                WHERE toLower(c.name) CONTAINS toLower($name)
+                  AND toUpper(f.flight_number) = $flight_num
+                RETURN c.booking_ref AS booking_ref
+                LIMIT 1
+                """,
+                name=customer_name.strip(),
+                flight_num=route_upper.strip(),
             )
         else:
             # Just match by name
@@ -670,18 +670,28 @@ def build_keyword_map(graph: Dict) -> Dict[str, str]:
                 mapping["alternative"] = nid
                 mapping["options"] = nid
                 mapping["next flight"] = nid
-                mapping["tonight"] = nid
-                mapping["23:40"] = nid
-                mapping["business"] = nid
-                mapping["upgrade"] = nid
-                mapping["qf109"] = nid
+                mapping["tomorrow"] = nid
+                mapping["6am"] = nid
+                mapping["06:00"] = nid
+                mapping["morning flight"] = nid
+                mapping["qf83"] = nid
 
         elif ntype == "Communication":
             # Match on channel name
             label = node.get("label", "").lower()
-            if "sms" in label:
+            if "hotel" in label:
+                mapping["rydges"] = nid
+                mapping["hotel"] = nid
+                mapping["accommodation"] = nid
+                mapping["overnight"] = nid
+                mapping["room"] = nid
+            elif "sms" in label:
                 mapping["sms"] = nid
                 mapping["text message"] = nid
+                mapping["voucher"] = nid
+                mapping["meal"] = nid
+                mapping["fifty"] = nid
+                mapping["$50"] = nid
             elif "email" in label:
                 mapping["email"] = nid
             elif "push" in label or "app" in label:
@@ -699,13 +709,17 @@ def build_keyword_map(graph: Dict) -> Dict[str, str]:
             if "cancelled" in etype or "cancellation" in etype:
                 mapping["grounded"] = nid
                 mapping["fault"] = nid
-                mapping["hydraulic"] = nid
-            elif "connection" in etype or "missed" in etype:
-                mapping["missed"] = nid
-                mapping["connection broken"] = nid
-            elif "bag" in etype or "transfer" in etype:
-                mapping["rerouted"] = nid
-                mapping["transferred"] = nid
+                mapping["engineering"] = nid
+            elif "intercepted" in etype or "baggage" in etype:
+                mapping["intercepted"] = nid
+                mapping["carousel"] = nid
+                mapping["rfid"] = nid
+            elif "accommodation" in etype or "hotel" in etype:
+                mapping["arranged"] = nid
+                mapping["booked"] = nid
+            elif "notified" in etype or "passenger" in etype:
+                mapping["sent"] = nid
+                mapping["digital"] = nid
 
     return mapping
 
@@ -738,11 +752,16 @@ def _query_baggage_context_sync(driver, booking_ref: str) -> Optional[Dict]:
         node_ids = []
         for i, b in enumerate(bags, 1):
             status = b.get("status", "unknown")
-            status_str = (
-                "auto-transferred to alternative flight"
-                if status == "transferred"
-                else status
-            )
+            location = b.get("location", "unknown location")
+            last_scan = b.get("last_scan", "")
+            if status == "held_secure":
+                status_str = f"held in {location}"
+                if last_scan:
+                    status_str += f" — last RFID scan: {last_scan}"
+            elif status == "transferred":
+                status_str = "auto-transferred to rescheduled flight"
+            else:
+                status_str = status
             lines.append(
                 f"  Bag {i}: tag {b['tag']}, {b.get('weight_kg', '?')}kg — {status_str}"
             )

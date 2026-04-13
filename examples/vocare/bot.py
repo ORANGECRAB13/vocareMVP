@@ -168,45 +168,46 @@ SYSTEM_INSTRUCTION_DEFAULT = (
 
 SYSTEM_INSTRUCTION_KG = (
     "You are a Qantas customer service agent on a voice call. "
-    "Your name is Aria. Speak naturally, warmly, and briefly — never read out "
-    "long lists. "
+    "Your name is Aria. Speak naturally, warmly, and briefly — one or two "
+    "sentences at a time. "
 
     # --- Phase 1: Identity Collection ---
-    "Start by warmly greeting the caller and asking for their booking reference "
-    "number. "
-    "If they don't have it, ask for their name and original flight route so you "
-    "can look them up. "
+    "Start by asking for their name and flight number. "
+    "Do not ask for a booking reference — passengers calling about cancellations "
+    "rarely have it. "
 
     # --- Phase 2: Graph Lookup ---
-    "Once you have their details, call the appropriate lookup tool immediately. "
+    "Once you have their name and flight number, call lookup_customer immediately. "
     "Do not summarise anything before the tool returns data. "
 
     # --- Phase 3: Disruption Reveal ---
-    "After retrieving their situation, the PRE-CALL BRIEF section tells you "
-    "exactly what happened. "
-    "Acknowledge the disruption briefly and empathetically — explain the cause "
+    "After retrieving their situation, the PRE-CALL BRIEF tells you exactly what "
+    "happened and what is already arranged. "
+    "Acknowledge the cancellation briefly and empathetically — explain the cause "
     "in ONE sentence. "
-    "Then immediately surface the downstream impact: if a connecting flight is "
-    "also disrupted, "
-    "name that leg specifically. Do not over-explain. "
+    "Then tell them the next available flight time. Do not over-explain. "
 
-    # --- Phase 4: Options (DO NOT REBOOK) ---
-    "Do NOT confirm any rebooking automatically. "
-    "Present 2 to 3 concrete options clearly. Each option must include the new "
-    "flight time, "
-    "routing, and any upgrade or compensation. "
-    "Ask the passenger which option they prefer before taking any action. "
+    # --- Phase 4: Confirm the rebook ---
+    "The rescheduled flight is already identified in the brief. "
+    "Tell the passenger the new departure time and ask if they want to confirm. "
+    "Do NOT confirm without their verbal agreement. "
 
-    # --- Phase 5: Baggage Handling ---
-    "If the passenger asks about their bags, call the lookup_baggage tool "
-    "immediately. "
-    "Report the exact number of bags and whether they have been automatically "
-    "transferred. "
-    "Be specific — name the count, not just 'your luggage'. "
+    # --- Phase 5: Baggage ---
+    "If the passenger asks about their bags, call the lookup_baggage tool. "
+    "Report the exact location — name the terminal, the carousel, and that the "
+    "bag will automatically load onto the rescheduled flight. "
+    "Be specific — use the detail from the data, not generic phrases. "
+
+    # --- Phase 6: Accommodation ---
+    "If the passenger asks about tonight or where to sleep, tell them: "
+    "Qantas covers overnight accommodation for engineering delays. "
+    "Rydges Airport Hotel has been booked and a room secured. "
+    "An SMS with the digital hotel voucher and a fifty dollar meal allowance "
+    "has already been sent to their phone. "
+    "You do not need to ask them — just confirm it is done. "
 
     # --- Tone ---
-    "Always be human, concise, and proactive. Never list more than 3 items in "
-    "one breath. "
+    "Always be human, concise, and proactive. Never read out lists. "
     "Do not use filler phrases like 'Certainly!' or 'Of course!'. "
 )
 
@@ -707,7 +708,7 @@ async def run_bot(
             properties={
                 "booking_ref": {
                     "type": "string",
-                    "description": "The booking reference, e.g. QF-7731",
+                    "description": "The booking reference, e.g. QF-8200",
                 },
             },
             required=["booking_ref"],
@@ -716,12 +717,12 @@ async def run_bot(
             name="lookup_booking",
             description=(
                 "Look up a customer's full situation by their booking reference number. "
-                "Call this when the customer provides a booking reference like QF-7731."
+                "Call this when the customer provides a booking reference like QF-8200."
             ),
             properties={
                 "booking_ref": {
                     "type": "string",
-                    "description": "The booking reference number, e.g. QF-7731",
+                    "description": "The booking reference number, e.g. QF-8200",
                 },
             },
             required=["booking_ref"],
@@ -729,20 +730,21 @@ async def run_bot(
         lookup_customer_schema = FunctionSchema(
             name="lookup_customer",
             description=(
-                "Look up a customer by their name and original flight route. "
-                "Call this when the customer doesn't know their booking reference "
-                "but provides their name and flight details."
+                "Look up a customer by their name and flight number or route. "
+                "Call this when the customer provides their name and flight details "
+                "instead of a booking reference. Accepts flight numbers like 'QF82' "
+                "or route codes like 'SYD-MEL'."
             ),
             properties={
                 "customer_name": {
                     "type": "string",
-                    "description": "The customer's full name, e.g. Von",
+                    "description": "The customer's full name, e.g. Jack Smith",
                 },
                 "flight_route": {
                     "type": "string",
                     "description": (
-                        "The flight route using city names or airport codes, "
-                        "e.g. 'Sydney to Honolulu' or 'SYD-HNL'"
+                        "The flight number (e.g. 'QF82'), route codes (e.g. 'SYD-MEL'), "
+                        "or city names (e.g. 'Sydney to Melbourne')"
                     ),
                 },
             },
@@ -789,9 +791,8 @@ async def run_bot(
                     "role": "system",
                     "content": (
                         "Greet the caller warmly as Aria, a Qantas service agent. "
-                        "Ask for their booking reference number. "
-                        "If they don't have it, let them know you can look them up "
-                        "by name and flight route."
+                        "Ask for their name and flight number so you can pull up "
+                        "their details."
                     ),
                 }
             )
