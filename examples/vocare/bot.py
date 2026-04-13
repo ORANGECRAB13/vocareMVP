@@ -619,16 +619,64 @@ async def run_bot(
                 {"error": "Failed to look up customer. Please try again."}
             )
 
+    async def handle_lookup_baggage(params: FunctionCallParams):
+        """Retrieve baggage status and highlight all bag nodes on the frontend graph."""
+        booking_ref = params.arguments.get("booking_ref", "").strip()
+        logger.info(f"Function call: lookup_baggage({booking_ref})")
+
+        if not neo4j_driver:
+            await params.result_callback(
+                {"error": "System unavailable, please try again later."}
+            )
+            return
+
+        try:
+            from knowledge_graph import query_baggage_context
+
+            result = await query_baggage_context(neo4j_driver, booking_ref)
+            if result:
+                if event_queue:
+                    for node_id in result["node_ids"]:
+                        await _put_graph_event(
+                            event_queue, {"type": "highlight", "nodeId": node_id}
+                        )
+                await params.result_callback({"baggage": result["summary"]})
+            else:
+                await params.result_callback(
+                    {"error": f"No baggage found for booking {booking_ref}."}
+                )
+        except Exception as e:
+            logger.error(f"lookup_baggage failed: {e}")
+            await params.result_callback(
+                {"error": "Failed to retrieve baggage info. Please try again."}
+            )
+
     # Register tools on the LLM and build schema
     tools = None
     if use_kg:
         llm.register_function("lookup_booking", handle_lookup_booking)
         llm.register_function("lookup_customer", handle_lookup_customer)
+        llm.register_function("lookup_baggage", handle_lookup_baggage)
 
         @llm.event_handler("on_function_calls_started")
         async def on_function_calls_started(service, function_calls):
             await tts.queue_frame(TTSSpeakFrame("Let me pull up your details."))
 
+        lookup_baggage_schema = FunctionSchema(
+            name="lookup_baggage",
+            description=(
+                "Retrieve baggage status for a booking — count, tag numbers, weight, "
+                "and whether bags have been automatically transferred to the alternative flight. "
+                "Call this when the passenger asks about their bags or luggage."
+            ),
+            properties={
+                "booking_ref": {
+                    "type": "string",
+                    "description": "The booking reference, e.g. QF-7731",
+                },
+            },
+            required=["booking_ref"],
+        )
         lookup_booking_schema = FunctionSchema(
             name="lookup_booking",
             description=(
@@ -666,7 +714,7 @@ async def run_bot(
             required=["customer_name", "flight_route"],
         )
         tools = ToolsSchema(
-            standard_tools=[lookup_booking_schema, lookup_customer_schema]
+            standard_tools=[lookup_booking_schema, lookup_customer_schema, lookup_baggage_schema]
         )
 
     context = LLMContext(tools=tools)
