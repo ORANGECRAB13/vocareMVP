@@ -660,6 +660,7 @@
             setStatus('Connected', 'connected');
             audioIndicator.classList.add('active');
             disconnectBtn.style.display = 'block';
+            document.getElementById('transcript').style.display = 'block';
           } else if (pc.connectionState === 'disconnected' || pc.connectionState === 'failed') {
             cleanup();
             setStatus('Disconnected', 'error');
@@ -702,16 +703,26 @@
         pcId = answer.pc_id;
         await pc.setRemoteDescription(answer);
 
-        // Start polling for graph events
-        if (useKg) {
-          connectGraphSSE(pcId);
-        }
+        // Start polling for graph and transcript events
+        connectGraphSSE(pcId);
 
       } catch (err) {
         console.error(err);
         setStatus(`Error: ${err.message}`, 'error');
         cleanup();
       }
+    }
+
+    function appendTranscriptBubble(speaker, text) {
+      const messages = document.getElementById('transcriptMessages');
+      const row = document.createElement('div');
+      row.className = speaker === 'user' ? 'transcript-user' : 'transcript-bot';
+      const bub = document.createElement('div');
+      bub.className = 'transcript-bub';
+      bub.textContent = text;
+      row.appendChild(bub);
+      messages.appendChild(row);
+      messages.scrollTop = messages.scrollHeight;
     }
 
     // Shared graph event handler — used by both presenter poll and viewer poll
@@ -733,6 +744,10 @@
         graphStatusEl.textContent = 'Context loaded \u2014 agent has full awareness';
       } else if (event.type === 'highlight') {
         graphRenderer.highlightNode(event.nodeId);
+      } else if (event.type === 'user_transcription') {
+        appendTranscriptBubble('user', event.text);
+      } else if (event.type === 'bot_transcription') {
+        appendTranscriptBubble('bot', event.text);
       }
     }
 
@@ -890,6 +905,8 @@
       connectBtn.style.display = 'block';
       disconnectBtn.style.display = 'none';
       controlsSection.style.display = '';
+      document.getElementById('transcript').style.display = 'none';
+      document.getElementById('transcriptMessages').innerHTML = '';
 
       // In demo mode, start checking for active demos again
       if (currentMode === 'demo') {
