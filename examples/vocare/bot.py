@@ -134,7 +134,7 @@ for _name in ("aioice", "aiortc"):
 from pipecat.adapters.schemas.function_schema import FunctionSchema
 from pipecat.adapters.schemas.tools_schema import ToolsSchema
 from pipecat.audio.vad.silero import SileroVADAnalyzer
-from pipecat.frames.frames import LLMRunFrame, LLMTextFrame, TTSSpeakFrame
+from pipecat.frames.frames import LLMFullResponseEndFrame, LLMRunFrame, LLMTextFrame, TTSSpeakFrame, TranscriptionFrame
 from pipecat.observers.base_observer import BaseObserver, FramePushed
 from pipecat.pipeline.pipeline import Pipeline
 from pipecat.pipeline.runner import PipelineRunner
@@ -435,6 +435,50 @@ class GraphHighlightObserver(BaseObserver):
             self._buffer = self._buffer[-20:]
 
 
+class TranscriptionObserver(BaseObserver):
+    """Watches STT and LLM frames to emit transcript events to the frontend.
+
+    Pushes 'user_transcription' events on final TranscriptionFrames and
+    'bot_transcription' events when the LLM finishes a full response.
+    """
+
+    def __init__(self, event_queue: asyncio.Queue):
+        super().__init__()
+        self._event_queue = event_queue
+        self._bot_buffer = ""
+
+    async def on_push_frame(self, data: FramePushed):
+        frame = data.frame
+        if data.direction != FrameDirection.DOWNSTREAM:
+            return
+
+        if isinstance(frame, TranscriptionFrame):
+            text = frame.text.strip()
+            if text:
+                event = {"type": "user_transcription", "text": text}
+                try:
+                    self._event_queue.put_nowait(event)
+                except asyncio.QueueFull:
+                    pass
+                if demo_pc_id is not None:
+                    demo_events.append(event)
+
+        elif isinstance(frame, LLMTextFrame) and isinstance(data.source, LLMService):
+            self._bot_buffer += frame.text
+
+        elif isinstance(frame, LLMFullResponseEndFrame):
+            text = self._bot_buffer.strip()
+            self._bot_buffer = ""
+            if text:
+                event = {"type": "bot_transcription", "text": text}
+                try:
+                    self._event_queue.put_nowait(event)
+                except asyncio.QueueFull:
+                    pass
+                if demo_pc_id is not None:
+                    demo_events.append(event)
+
+
 # ---------------------------------------------------------------------------
 # Bot pipeline
 # ---------------------------------------------------------------------------
@@ -470,6 +514,9 @@ async def run_bot(
     event_queue = graph_event_queues.get(pc_id)
     observers = []
     highlight_observer = None
+    if event_queue:
+        transcript_observer = TranscriptionObserver(event_queue)
+        observers.append(transcript_observer)
     if use_kg and event_queue:
         highlight_observer = GraphHighlightObserver(event_queue)
         observers.append(highlight_observer)
@@ -783,9 +830,8 @@ async def offer(request: dict, background_tasks: BackgroundTasks):
     pc_id_value = answer["pc_id"]
     pcs_map[pc_id_value] = pipecat_connection
 
-    # Create SSE event queue for graph traversal if KG enabled
-    if use_kg:
-        graph_event_queues[pc_id_value] = asyncio.Queue()
+    # Create SSE event queue for transcript and graph events
+    graph_event_queues[pc_id_value] = asyncio.Queue()
 
     # Demo mode: register this connection as the presenter
     if mode == "demo":
