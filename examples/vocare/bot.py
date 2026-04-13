@@ -134,7 +134,13 @@ for _name in ("aioice", "aiortc"):
 from pipecat.adapters.schemas.function_schema import FunctionSchema
 from pipecat.adapters.schemas.tools_schema import ToolsSchema
 from pipecat.audio.vad.silero import SileroVADAnalyzer
-from pipecat.frames.frames import LLMFullResponseEndFrame, LLMRunFrame, LLMTextFrame, TTSSpeakFrame, TranscriptionFrame
+from pipecat.frames.frames import (
+    LLMFullResponseEndFrame,
+    LLMRunFrame,
+    LLMTextFrame,
+    TTSSpeakFrame,
+    TranscriptionFrame,
+)
 from pipecat.observers.base_observer import BaseObserver, FramePushed
 from pipecat.pipeline.pipeline import Pipeline
 from pipecat.pipeline.runner import PipelineRunner
@@ -455,13 +461,9 @@ class TranscriptionObserver(BaseObserver):
         if isinstance(frame, TranscriptionFrame):
             text = frame.text.strip()
             if text:
-                event = {"type": "user_transcription", "text": text}
-                try:
-                    self._event_queue.put_nowait(event)
-                except asyncio.QueueFull:
-                    pass
-                if demo_pc_id is not None:
-                    demo_events.append(event)
+                await _put_graph_event(
+                    self._event_queue, {"type": "user_transcription", "text": text}
+                )
 
         elif isinstance(frame, LLMTextFrame) and isinstance(data.source, LLMService):
             self._bot_buffer += frame.text
@@ -470,13 +472,9 @@ class TranscriptionObserver(BaseObserver):
             text = self._bot_buffer.strip()
             self._bot_buffer = ""
             if text:
-                event = {"type": "bot_transcription", "text": text}
-                try:
-                    self._event_queue.put_nowait(event)
-                except asyncio.QueueFull:
-                    pass
-                if demo_pc_id is not None:
-                    demo_events.append(event)
+                await _put_graph_event(
+                    self._event_queue, {"type": "bot_transcription", "text": text}
+                )
 
 
 # ---------------------------------------------------------------------------
@@ -509,7 +507,7 @@ async def run_bot(
     llm = create_llm(llm_name, system_instruction=system_instruction)
     tts = create_tts(tts_name)
 
-    # Create graph highlight observer (keyword map populated after graph lookup)
+    # Attach pipeline observers: transcript (always) and graph highlight (KG sessions only)
     pc_id = webrtc_connection.pc_id
     event_queue = graph_event_queues.get(pc_id)
     observers = []
