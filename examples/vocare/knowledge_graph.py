@@ -327,17 +327,20 @@ def _query_graph_structure_sync(driver, booking_ref: str) -> Optional[Dict]:
         result = session.run(
             """
             MATCH (c:Customer {booking_ref: $ref})
-            OPTIONAL MATCH (c)-[:HAS_FLIGHT]->(f:FlightOperation)
-            OPTIONAL MATCH (c)-[:HAS_BAGGAGE]->(b:Baggage)
-            OPTIONAL MATCH (c)-[:HAS_REBOOKING_OPTION]->(r:Rebooking)
+            OPTIONAL MATCH (c)-[hf:HAS_FLIGHT]->(f:FlightOperation)
+            OPTIONAL MATCH (c)-[hb:HAS_BAGGAGE]->(b:Baggage)
+            OPTIONAL MATCH (c)-[hr:HAS_REBOOKING_OPTION]->(r:Rebooking)
             OPTIONAL MATCH (c)-[:RECEIVED_COMM]->(comm:Communication)
             OPTIONAL MATCH (b)-[co:CHECKED_ON]->(bf:FlightOperation)
+            OPTIONAL MATCH (c)-[:EXPERIENCED]->(e1:Event)
+            OPTIONAL MATCH (e1)-[:TRIGGERED*0..5]->(echain:Event)
             RETURN c,
-                   collect(DISTINCT f) AS flights,
-                   collect(DISTINCT b) AS baggage,
-                   collect(DISTINCT r) AS rebookings,
+                   collect(DISTINCT {flight: f, source: hf.source}) AS flights,
+                   collect(DISTINCT {bag: b, source: hb.source}) AS baggage,
+                   collect(DISTINCT {rebooking: r, source: hr.source}) AS rebookings,
                    collect(DISTINCT comm) AS comms,
-                   collect(DISTINCT {bag_tag: b.tag, flight_num: bf.flight_number}) AS bag_flights
+                   collect(DISTINCT {bag_tag: b.tag, flight_num: bf.flight_number}) AS bag_flights,
+                   collect(DISTINCT echain) AS events
             """,
             ref=booking_ref,
         )
@@ -350,13 +353,10 @@ def _query_graph_structure_sync(driver, booking_ref: str) -> Optional[Dict]:
         nodes: List[Dict] = []
         edges: List[Dict] = []
 
-        # Human-friendly route names
         city_names = {
-            "SYD": "Sydney",
-            "AKL": "Auckland",
-            "LAX": "Los Angeles",
-            "MEL": "Melbourne",
-            "BNE": "Brisbane",
+            "SYD": "Sydney", "AKL": "Auckland", "LAX": "Los Angeles",
+            "MEL": "Melbourne", "BNE": "Brisbane",
+            "GUM": "Guam", "HNL": "Honolulu", "SFO": "San Francisco",
         }
 
         def friendly_route(route: str) -> str:
@@ -364,12 +364,9 @@ def _query_graph_structure_sync(driver, booking_ref: str) -> Optional[Dict]:
             return " to ".join(city_names.get(p, p) for p in parts)
 
         def friendly_time(iso: str) -> str:
-            """Turn '2026-04-09T11:00' into 'Apr 9, 11:00 AM'."""
             try:
                 from datetime import datetime
-
                 dt = datetime.fromisoformat(iso)
-                # %#d / %#I for Windows, %-d / %-I for Unix — try both
                 try:
                     return dt.strftime("%b %#d, %#I:%M %p")
                 except ValueError:
@@ -378,96 +375,133 @@ def _query_graph_structure_sync(driver, booking_ref: str) -> Optional[Dict]:
                 return iso
 
         cust_id = f"customer-{customer['booking_ref']}"
-        nodes.append(
-            {
-                "id": cust_id,
-                "type": "Customer",
-                "label": customer["name"],
-                "sublabel": (
-                    f"Booking {customer['booking_ref']}"
-                    f"  \u00b7  {customer['loyalty_tier']} member"
-                ),
-            }
-        )
+        nodes.append({
+            "id": cust_id,
+            "type": "Customer",
+            "label": customer["name"],
+            "sublabel": (
+                f"Booking {customer['booking_ref']}"
+                f"  \u00b7  {customer['loyalty_tier']} member"
+            ),
+        })
 
-        for f in record["flights"]:
+        # Flight nodes
+        for item in record["flights"]:
+            f = item["flight"]
+            if f is None:
+                continue
+            source = item.get("source") or "Qantas OpsDB"
             fid = f"flight-{f['flight_number']}"
             status = f["status"].upper()
             route = friendly_route(f["route"])
             if status == "CANCELLED":
                 status_text = f"Cancelled \u2014 {f.get('reason', 'unknown')}"
+            elif status == "DISRUPTED":
+                status_text = f"Disrupted \u2014 {f.get('reason', 'missed connection')}"
             elif status == "OPERATED":
                 status_text = "Arrived on time"
             else:
                 status_text = status
-            nodes.append(
-                {
-                    "id": fid,
-                    "type": "FlightOperation",
-                    "label": f"{f['flight_number']} \u00b7 {route}",
-                    "sublabel": status_text,
-                    "alert": status == "CANCELLED",
-                }
-            )
-            edges.append({"source": cust_id, "target": fid, "label": "Booked flight"})
+            nodes.append({
+                "id": fid,
+                "type": "FlightOperation",
+                "label": f"{f['flight_number']} \u00b7 {route}",
+                "sublabel": status_text,
+                "alert": status in ("CANCELLED", "DISRUPTED"),
+            })
+            edges.append({
+                "source": cust_id,
+                "target": fid,
+                "label": source,
+            })
 
-        bag_count = len(record["baggage"])
-        for i, b in enumerate(record["baggage"], 1):
+        # Baggage nodes
+        bag_items = [item for item in record["baggage"] if item.get("bag") is not None]
+        bag_count = len(bag_items)
+        for i, item in enumerate(bag_items, 1):
+            b = item["bag"]
+            source = item.get("source") or "Baggage Handling System"
             bid = f"baggage-{b['tag']}"
-            location = b["location"].replace("AKL terminal", "Auckland terminal")
-            status = "Held in transit" if b["status"] == "held" else b["status"]
+            location = b["location"]
+            status = "Auto-transferred" if b["status"] == "transferred" else b["status"]
             bag_label = "Checked Baggage" if bag_count == 1 else f"Bag {i}"
-            nodes.append(
-                {
-                    "id": bid,
-                    "type": "Baggage",
-                    "label": bag_label,
-                    "sublabel": f"{location} \u00b7 {status}",
-                }
-            )
-            edges.append({"source": cust_id, "target": bid, "label": "Checked bag"})
+            nodes.append({
+                "id": bid,
+                "type": "Baggage",
+                "label": bag_label,
+                "sublabel": f"{location} \u00b7 {status}",
+            })
+            edges.append({
+                "source": cust_id,
+                "target": bid,
+                "label": source,
+            })
 
-        for r in record["rebookings"]:
+        # Rebooking nodes
+        for item in record["rebookings"]:
+            r = item["rebooking"]
+            if r is None:
+                continue
+            source = item.get("source") or "Inventory API"
             rid = f"rebooking-{r['alt_flight']}"
             route = friendly_route(r["route"])
             time = friendly_time(r["departure"])
             seats = r["seats_available"]
             seat_word = "seat" if seats == 1 else "seats"
             note = f" ({r['note']})" if r.get("note") else ""
-            nodes.append(
-                {
-                    "id": rid,
-                    "type": "Rebooking",
-                    "label": f"{r['alt_flight']} \u00b7 {route}",
-                    "sublabel": f"{time} \u00b7 {seats} {seat_word}{note}",
-                }
-            )
-            edges.append({"source": cust_id, "target": rid, "label": "Rebooking option"})
+            nodes.append({
+                "id": rid,
+                "type": "Rebooking",
+                "label": f"{r['alt_flight']} \u00b7 {route}",
+                "sublabel": f"{time} \u00b7 {seats} {seat_word}{note}",
+            })
+            edges.append({
+                "source": cust_id,
+                "target": rid,
+                "label": source,
+            })
 
+        # Communication nodes
         for comm in record["comms"]:
             cid = f"comm-{comm['channel']}-{comm['sent_at']}"
             channel = comm["channel"]
             time = friendly_time(comm["sent_at"])
-            nodes.append(
-                {
-                    "id": cid,
-                    "type": "Communication",
-                    "label": f"Sent via {channel}",
-                    "sublabel": time,
-                }
-            )
+            nodes.append({
+                "id": cid,
+                "type": "Communication",
+                "label": f"Sent via {channel}",
+                "sublabel": time,
+            })
             edges.append({"source": cust_id, "target": cid, "label": "Notified"})
 
-        # Baggage -> FlightOperation (CHECKED_ON) edges
+        # Baggage → FlightOperation edges
         for link in record["bag_flights"]:
             if link["bag_tag"] and link["flight_num"]:
-                edges.append(
-                    {
-                        "source": f"baggage-{link['bag_tag']}",
-                        "target": f"flight-{link['flight_num']}",
-                        "label": "Checked on",
-                    }
-                )
+                edges.append({
+                    "source": f"baggage-{link['bag_tag']}",
+                    "target": f"flight-{link['flight_num']}",
+                    "label": "Checked on",
+                })
+
+        # Event chain nodes (temporal layer)
+        seen_events: set = set()
+        prev_event_id = None
+        for e in record["events"]:
+            if e is None or e["id"] in seen_events:
+                continue
+            seen_events.add(e["id"])
+            eid = f"event-{e['id']}"
+            nodes.append({
+                "id": eid,
+                "type": "Event",
+                "label": e["type"].replace("_", " ").title(),
+                "sublabel": e.get("description", ""),
+            })
+            if prev_event_id is None:
+                edges.append({"source": cust_id, "target": eid, "label": "Experienced"})
+            else:
+                edges.append({"source": prev_event_id, "target": eid, "label": "Triggered"})
+            prev_event_id = eid
 
         return {"nodes": nodes, "edges": edges}
 
