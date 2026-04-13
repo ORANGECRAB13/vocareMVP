@@ -234,6 +234,10 @@ def create_tts(name: str):
 pcs_map: Dict[str, SmallWebRTCConnection] = {}
 graph_event_queues: Dict[str, asyncio.Queue] = {}
 
+# Demo mode shared state
+demo_events: list[dict] = []      # append-only list of graph events (fan-out to multiple viewers)
+demo_pc_id: str | None = None     # presenter's pc_id (None = no active demo)
+
 def fetch_twilio_ice_servers():
     """Fetch fresh TURN credentials from Twilio Network Traversal Service.
 
@@ -358,6 +362,13 @@ async def lifespan(app: FastAPI):
 app = FastAPI(lifespan=lifespan)
 
 
+async def _put_graph_event(event_queue: asyncio.Queue, event: dict):
+    """Put an event into the session queue and, if demo mode is active, also append to demo_events."""
+    await event_queue.put(event)
+    if demo_pc_id is not None:
+        demo_events.append(event)
+
+
 # ---------------------------------------------------------------------------
 # Graph highlight observer
 # ---------------------------------------------------------------------------
@@ -408,12 +419,13 @@ class GraphHighlightObserver(BaseObserver):
                 if node_id != self._last_highlight or (now - self._last_highlight_time) > 2.0:
                     self._last_highlight = node_id
                     self._last_highlight_time = now
+                    event = {"type": "highlight", "nodeId": node_id}
                     try:
-                        self._event_queue.put_nowait(
-                            {"type": "highlight", "nodeId": node_id}
-                        )
+                        self._event_queue.put_nowait(event)
                     except asyncio.QueueFull:
                         pass
+                    if demo_pc_id is not None:
+                        demo_events.append(event)
                 # Trim buffer to keep only the last few chars (for partial word overlap)
                 self._buffer = self._buffer[-10:]
                 return
@@ -480,14 +492,14 @@ async def run_bot(
 
         # Send graph visualization to frontend
         if event_queue and graph_structure:
-            await event_queue.put({"type": "graph", "data": graph_structure})
+            await _put_graph_event(event_queue, {"type": "graph", "data": graph_structure})
             traversal = build_traversal_sequence(graph_structure)
 
             async def _animate():
                 for evt in traversal:
                     await asyncio.sleep(0.35)
-                    await event_queue.put(evt)
-                await event_queue.put({"type": "context_loaded"})
+                    await _put_graph_event(event_queue, evt)
+                await _put_graph_event(event_queue, {"type": "context_loaded"})
 
             asyncio.create_task(_animate())
 
@@ -660,11 +672,15 @@ async def run_bot(
 
     @transport.event_handler("on_client_disconnected")
     async def on_client_disconnected(transport, client):
+        global demo_pc_id
         logger.info("Client disconnected")
         pc_id = webrtc_connection.pc_id
         queue = graph_event_queues.pop(pc_id, None)
         if queue:
             await queue.put(None)  # Signal SSE to close
+        if demo_pc_id == pc_id:
+            demo_pc_id = None
+            logger.info("Demo presenter disconnected — demo session ended")
         await task.cancel()
 
     runner = PipelineRunner(handle_sigint=False)
@@ -692,6 +708,7 @@ async def get_ice_servers():
 
 @app.post("/api/offer")
 async def offer(request: dict, background_tasks: BackgroundTasks):
+    global demo_pc_id, demo_events
     pc_id = request.get("pc_id")
 
     # Log incoming candidates from the peer (diagnose WebRTC ICE issues)
@@ -706,6 +723,7 @@ async def offer(request: dict, background_tasks: BackgroundTasks):
     llm_name = request.get("llm", "groq")
     tts_name = request.get("tts", "elevenlabs")
     use_kg = request.get("use_kg", False)
+    mode = request.get("mode", "indiv")
 
     if pc_id and pc_id in pcs_map:
         pipecat_connection = pcs_map[pc_id]
@@ -769,6 +787,12 @@ async def offer(request: dict, background_tasks: BackgroundTasks):
     if use_kg:
         graph_event_queues[pc_id_value] = asyncio.Queue()
 
+    # Demo mode: register this connection as the presenter
+    if mode == "demo":
+        demo_pc_id = pc_id_value
+        demo_events = []
+        logger.info(f"Demo mode activated — presenter pc_id: {pc_id_value}")
+
     return answer
 
 
@@ -795,6 +819,26 @@ async def graph_poll(pc_id: str):
         events.append(event)
 
     return {"events": events, "closed": False}
+
+
+# ---------------------------------------------------------------------------
+# Demo mode endpoints
+# ---------------------------------------------------------------------------
+
+
+@app.get("/api/demo/status")
+async def demo_status():
+    """Returns whether a demo session is currently active."""
+    return {"active": demo_pc_id is not None, "event_count": len(demo_events)}
+
+
+@app.get("/api/demo/poll")
+async def demo_poll(cursor: int = 0):
+    """Cursor-based poll for demo viewers. Returns new events since cursor."""
+    if demo_pc_id is None:
+        return {"events": [], "cursor": cursor, "active": False}
+    new_events = demo_events[cursor:]
+    return {"events": new_events, "cursor": len(demo_events), "active": True}
 
 
 # ---------------------------------------------------------------------------

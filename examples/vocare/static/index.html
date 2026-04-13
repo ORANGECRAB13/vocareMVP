@@ -143,6 +143,46 @@
     .status-connected { color: #22c55e !important; }
     .status-error { color: #ef4444 !important; }
 
+    .mode-selector {
+      display: flex;
+      margin-bottom: 1.5rem;
+      border: 1px solid #333;
+      border-radius: 8px;
+      overflow: hidden;
+    }
+
+    .mode-btn {
+      flex: 1;
+      padding: 0.5rem;
+      background: #1a1a1a;
+      color: #888;
+      border: none;
+      font-size: 0.8rem;
+      font-weight: 600;
+      letter-spacing: 0.08em;
+      cursor: pointer;
+      transition: background 0.15s, color 0.15s;
+    }
+
+    .mode-btn.active {
+      background: #2563eb;
+      color: #fff;
+    }
+
+    .mode-btn:not(.active):hover {
+      background: #222;
+      color: #ccc;
+    }
+
+    .viewer-banner {
+      text-align: center;
+      padding: 1rem;
+      color: #888;
+      font-size: 0.85rem;
+    }
+
+    .viewer-banner.active { color: #22c55e; }
+
     .audio-indicator {
       display: none;
       justify-content: center;
@@ -395,6 +435,14 @@
     <div class="panel-left">
       <h1>Vocare</h1>
 
+      <div class="mode-selector">
+        <button class="mode-btn active" data-mode="demo" id="modeDemoBtn">DEMO</button>
+        <button class="mode-btn" data-mode="indiv" id="modeIndivBtn">INDIV</button>
+      </div>
+
+      <div class="viewer-banner" id="viewerBanner" style="display:none;"></div>
+
+      <div id="controlsSection">
       <div class="config-group">
         <label for="stt">Speech-to-Text</label>
         <select id="stt">
@@ -428,6 +476,7 @@
 
       <button class="btn" id="connectBtn">Connect</button>
       <button class="btn" id="disconnectBtn">Disconnect</button>
+      </div><!-- /controlsSection -->
 
       <div class="audio-indicator" id="audioIndicator">
         <div class="audio-bar"></div>
@@ -473,12 +522,23 @@
     const disconnectBtn = document.getElementById('disconnectBtn');
     const statusEl = document.getElementById('status');
     const audioIndicator = document.getElementById('audioIndicator');
+    const controlsSection = document.getElementById('controlsSection');
+    const viewerBanner = document.getElementById('viewerBanner');
+    const modeDemoBtn = document.getElementById('modeDemoBtn');
+    const modeIndivBtn = document.getElementById('modeIndivBtn');
 
     let pc = null;
     let pcId = null;
     let dataChannel = null;
     let pingInterval = null;
     let eventSource = null;
+
+    // Mode state
+    let currentMode = 'demo';
+    let isViewer = false;
+    let viewerPollInterval = null;
+    let viewerCursor = 0;
+    let demoCheckInterval = null;
 
     function setStatus(msg, cls) {
       statusEl.textContent = msg;
@@ -488,6 +548,9 @@
     async function connect() {
       connectBtn.disabled = true;
       setStatus('Connecting...');
+      stopViewer();
+      stopDemoCheck();
+      viewerBanner.style.display = 'none';
       graphRenderer.reset();
 
       try {
@@ -569,6 +632,7 @@
             llm: document.getElementById('llm').value,
             tts: document.getElementById('tts').value,
             use_kg: useKg,
+            mode: currentMode,
           }),
         });
 
@@ -588,29 +652,31 @@
       }
     }
 
-    function connectGraphSSE(sessionPcId) {
+    // Shared graph event handler — used by both presenter poll and viewer poll
+    function handleGraphEvent(event) {
       const graphStatusEl = document.getElementById('graphStatus');
       const placeholder = document.getElementById('graphPlaceholder');
       const legend = document.getElementById('graphLegend');
 
-      graphStatusEl.textContent = 'Connecting to graph...';
+      if (event.type === 'graph') {
+        placeholder.style.display = 'none';
+        legend.style.display = 'flex';
+        graphStatusEl.textContent = 'Traversing graph...';
+        graphRenderer.loadGraph(event.data);
+      } else if (event.type === 'traverse') {
+        graphRenderer.animateTraversal(event.fromId, event.toId, event.label);
+      } else if (event.type === 'activate') {
+        graphRenderer.activateNode(event.nodeId);
+      } else if (event.type === 'context_loaded') {
+        graphStatusEl.textContent = 'Context loaded \u2014 agent has full awareness';
+      } else if (event.type === 'highlight') {
+        graphRenderer.highlightNode(event.nodeId);
+      }
+    }
 
-      const handleEvent = (event) => {
-        if (event.type === 'graph') {
-          placeholder.style.display = 'none';
-          legend.style.display = 'flex';
-          graphStatusEl.textContent = 'Traversing graph...';
-          graphRenderer.loadGraph(event.data);
-        } else if (event.type === 'traverse') {
-          graphRenderer.animateTraversal(event.fromId, event.toId, event.label);
-        } else if (event.type === 'activate') {
-          graphRenderer.activateNode(event.nodeId);
-        } else if (event.type === 'context_loaded') {
-          graphStatusEl.textContent = 'Context loaded \u2014 agent has full awareness';
-        } else if (event.type === 'highlight') {
-          graphRenderer.highlightNode(event.nodeId);
-        }
-      };
+    function connectGraphSSE(sessionPcId) {
+      const graphStatusEl = document.getElementById('graphStatus');
+      graphStatusEl.textContent = 'Connecting to graph...';
 
       const poll = async () => {
         try {
@@ -619,7 +685,7 @@
           const body = await res.json();
           if (body.events && body.events.length > 0) {
             console.log('[POLL]', body.events.length, 'events');
-            for (const ev of body.events) handleEvent(ev);
+            for (const ev of body.events) handleGraphEvent(ev);
           }
           if (body.closed) {
             clearInterval(eventSource);
@@ -634,6 +700,116 @@
       eventSource = setInterval(poll, 250);
       poll();  // immediate first poll
     }
+
+    // -----------------------------------------------------------------------
+    // Mode switching
+    // -----------------------------------------------------------------------
+    function setMode(mode) {
+      currentMode = mode;
+      modeDemoBtn.classList.toggle('active', mode === 'demo');
+      modeIndivBtn.classList.toggle('active', mode === 'indiv');
+
+      // Clean up any active viewer state
+      stopViewer();
+
+      if (mode === 'demo' && !pc) {
+        // Not connected — check if a demo is active to become a viewer
+        startDemoCheck();
+      } else {
+        stopDemoCheck();
+      }
+
+      if (mode === 'indiv') {
+        stopDemoCheck();
+        controlsSection.style.display = '';
+        viewerBanner.style.display = 'none';
+      }
+    }
+
+    modeDemoBtn.addEventListener('click', () => setMode('demo'));
+    modeIndivBtn.addEventListener('click', () => setMode('indiv'));
+
+    // -----------------------------------------------------------------------
+    // Demo viewer logic
+    // -----------------------------------------------------------------------
+    function startDemoCheck() {
+      stopDemoCheck();
+      const check = async () => {
+        if (currentMode !== 'demo' || pc) return; // already connected as presenter
+        try {
+          const res = await fetch('/api/demo/status');
+          if (!res.ok) return;
+          const body = await res.json();
+          if (body.active) {
+            enterViewerMode();
+          }
+        } catch (e) {
+          console.warn('[DEMO CHECK]', e);
+        }
+      };
+      demoCheckInterval = setInterval(check, 1500);
+      check(); // immediate
+    }
+
+    function stopDemoCheck() {
+      if (demoCheckInterval) {
+        clearInterval(demoCheckInterval);
+        demoCheckInterval = null;
+      }
+    }
+
+    function enterViewerMode() {
+      stopDemoCheck();
+      isViewer = true;
+      viewerCursor = 0;
+
+      // Hide call controls, show viewer banner
+      controlsSection.style.display = 'none';
+      viewerBanner.style.display = 'block';
+      viewerBanner.textContent = 'Watching demo...';
+      viewerBanner.className = 'viewer-banner active';
+
+      graphRenderer.reset();
+      document.getElementById('graphPlaceholder').style.display = 'none';
+      document.getElementById('graphStatus').textContent = 'Watching demo...';
+
+      // Start polling demo events
+      const poll = async () => {
+        try {
+          const res = await fetch(`/api/demo/poll?cursor=${viewerCursor}`);
+          if (!res.ok) return;
+          const body = await res.json();
+          if (body.events && body.events.length > 0) {
+            console.log('[DEMO POLL]', body.events.length, 'events');
+            for (const ev of body.events) handleGraphEvent(ev);
+          }
+          viewerCursor = body.cursor;
+          if (!body.active) {
+            viewerBanner.textContent = 'Demo ended';
+            viewerBanner.className = 'viewer-banner';
+            document.getElementById('graphStatus').textContent = 'Demo ended';
+            stopViewer();
+            // Show controls again so user can become presenter
+            controlsSection.style.display = '';
+          }
+        } catch (e) {
+          console.warn('[DEMO POLL] error', e);
+        }
+      };
+
+      viewerPollInterval = setInterval(poll, 250);
+      poll(); // immediate
+    }
+
+    function stopViewer() {
+      if (viewerPollInterval) {
+        clearInterval(viewerPollInterval);
+        viewerPollInterval = null;
+      }
+      isViewer = false;
+    }
+
+    // startDemoCheck() is called after graphRenderer is initialized (below)
 
     function cleanup() {
       if (eventSource) { clearInterval(eventSource); eventSource = null; }
@@ -651,6 +827,12 @@
       connectBtn.disabled = false;
       connectBtn.style.display = 'block';
       disconnectBtn.style.display = 'none';
+      controlsSection.style.display = '';
+
+      // In demo mode, start checking for active demos again
+      if (currentMode === 'demo') {
+        startDemoCheck();
+      }
     }
 
     function disconnect() {
@@ -1093,6 +1275,9 @@
     }
 
     const graphRenderer = new GraphRenderer('graphWorld', 'edgeCanvas');
+
+    // Start demo check on page load (default mode is demo)
+    startDemoCheck();
   </script>
 </body>
 </html>
