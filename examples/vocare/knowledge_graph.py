@@ -144,11 +144,13 @@ def _query_customer_context_sync(driver, booking_ref: str) -> Optional[str]:
             OPTIONAL MATCH (c)-[:HAS_BAGGAGE]->(b:Baggage)
             OPTIONAL MATCH (c)-[:HAS_REBOOKING_OPTION]->(r:Rebooking)
             OPTIONAL MATCH (c)-[:RECEIVED_COMM]->(comm:Communication)
+            OPTIONAL MATCH (c)-[:HAS_CALL_CONTEXT]->(ctx:CallContext)
             RETURN c,
                    collect(DISTINCT f) AS flights,
                    collect(DISTINCT b) AS baggage,
                    collect(DISTINCT r) AS rebooking_options,
-                   collect(DISTINCT comm) AS communications
+                   collect(DISTINCT comm) AS communications,
+                   ctx
             """,
             ref=booking_ref,
         )
@@ -164,6 +166,19 @@ def _query_customer_context_sync(driver, booking_ref: str) -> Optional[str]:
         communications = record["communications"]
 
         lines = []
+
+        # CallContext pre-assembled brief (call-readiness layer)
+        ctx = record.get("ctx")
+        if ctx:
+            lines.append("=== PRE-CALL BRIEF (Context Graph) ===")
+            lines.append("")
+            lines.append(f"Primary issue:       {ctx['primary_issue']}")
+            lines.append(f"Recommended action:  {ctx['recommended_action']}")
+            lines.append(f"Loyalty flag:        {ctx['loyalty_flag']}")
+            lines.append(f"Baggage status:      {ctx['baggage_status']}")
+            lines.append(f"Urgency:             {ctx['urgency']}")
+            lines.append("")
+
         lines.append("=== CUSTOMER SITUATION SUMMARY ===")
         lines.append("")
         lines.append(
