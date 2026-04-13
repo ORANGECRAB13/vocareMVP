@@ -427,6 +427,63 @@
       .panel-left { border-right: none; border-bottom: 1px solid #1a1a1a; }
       .panel-right { min-height: 400px; }
     }
+
+    /* Transcript panel */
+    #transcript {
+      display: none;
+      margin-top: 1rem;
+      flex-shrink: 0;
+    }
+
+    .transcript-label {
+      font-size: 0.7rem;
+      font-weight: 500;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: #555;
+      margin-bottom: 0.5rem;
+    }
+
+    .transcript-messages {
+      max-height: 280px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    /* Hide scrollbar but keep scrollability */
+    .transcript-messages::-webkit-scrollbar { width: 4px; }
+    .transcript-messages::-webkit-scrollbar-track { background: transparent; }
+    .transcript-messages::-webkit-scrollbar-thumb { background: #2a2a2a; border-radius: 2px; }
+
+    .transcript-user,
+    .transcript-bot {
+      display: flex;
+    }
+
+    .transcript-user { justify-content: flex-end; }
+    .transcript-bot  { justify-content: flex-start; }
+
+    .transcript-user .transcript-bub {
+      background: #1d4ed8;
+      color: #fff;
+      border-radius: 12px 12px 2px 12px;
+    }
+
+    .transcript-bot .transcript-bub {
+      background: #1e293b;
+      color: #e2e8f0;
+      border-radius: 12px 12px 12px 2px;
+    }
+
+    .transcript-bub {
+      padding: 6px 10px;
+      max-width: 80%;
+      font-size: 0.82rem;
+      line-height: 1.5;
+      word-break: break-word;
+    }
   </style>
 </head>
 <body>
@@ -486,6 +543,11 @@
       </div>
 
       <div id="status"></div>
+
+      <div id="transcript">
+        <div class="transcript-label">Transcript</div>
+        <div id="transcriptMessages" class="transcript-messages"></div>
+      </div>
     </div>
 
     <!-- Right panel: graph visualization -->
