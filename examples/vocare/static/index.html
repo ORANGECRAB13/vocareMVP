@@ -704,7 +704,7 @@
         await pc.setRemoteDescription(answer);
 
         // Start polling for graph and transcript events
-        connectGraphSSE(pcId);
+        connectGraphSSE(pcId, useKg);
 
       } catch (err) {
         console.error(err);
@@ -751,9 +751,11 @@
       }
     }
 
-    function connectGraphSSE(sessionPcId) {
+    function connectGraphSSE(sessionPcId, useKg) {
       const graphStatusEl = document.getElementById('graphStatus');
-      graphStatusEl.textContent = 'Connecting to graph...';
+      if (useKg) {
+        graphStatusEl.textContent = 'Connecting to graph...';
+      }
 
       const poll = async () => {
         try {
