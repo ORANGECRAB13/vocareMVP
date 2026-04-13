@@ -955,10 +955,19 @@
     // Positions are percentage-based (x%, y%) + z in px
     const LAYOUT_MAP = {
       Customer:        [{ xPct: 50, yPct: 48, z: 0 }],
-      FlightOperation: [{ xPct: 30, yPct: 28, z: -200 }, { xPct: 70, yPct: 28, z: -200 }],
+      FlightOperation: [
+        { xPct: 22, yPct: 28, z: -200 },
+        { xPct: 50, yPct: 22, z: -200 },
+        { xPct: 78, yPct: 28, z: -200 },
+      ],
       Baggage:         [{ xPct: 25, yPct: 58, z: -350 }],
       Rebooking:       [{ xPct: 75, yPct: 58, z: -350 }],
       Communication:   [{ xPct: 35, yPct: 78, z: -500 }, { xPct: 65, yPct: 78, z: -500 }],
+      Event: [
+        { xPct: 18, yPct: 78, z: -300 },
+        { xPct: 50, yPct: 85, z: -300 },
+        { xPct: 82, yPct: 78, z: -300 },
+      ],
     };
 
     class GraphRenderer {
@@ -1053,7 +1062,7 @@
         });
 
         // Create node divs with 3D positions
-        const typeOrder = ['Customer', 'FlightOperation', 'Baggage', 'Rebooking', 'Communication'];
+        const typeOrder = ['Customer', 'FlightOperation', 'Baggage', 'Rebooking', 'Communication', 'Event'];
         typeOrder.forEach(type => {
           const group = groups[type] || [];
           const layouts = LAYOUT_MAP[type] || [];

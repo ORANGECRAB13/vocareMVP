@@ -716,12 +716,12 @@ async def run_bot(
             name="lookup_booking",
             description=(
                 "Look up a customer's full situation by their booking reference number. "
-                "Call this when the customer provides a booking reference like QF-8842."
+                "Call this when the customer provides a booking reference like QF-7731."
             ),
             properties={
                 "booking_ref": {
                     "type": "string",
-                    "description": "The booking reference number, e.g. QF-8842",
+                    "description": "The booking reference number, e.g. QF-7731",
                 },
             },
             required=["booking_ref"],
@@ -736,13 +736,13 @@ async def run_bot(
             properties={
                 "customer_name": {
                     "type": "string",
-                    "description": "The customer's full name, e.g. Sarah Mitchell",
+                    "description": "The customer's full name, e.g. Von",
                 },
                 "flight_route": {
                     "type": "string",
                     "description": (
                         "The flight route using city names or airport codes, "
-                        "e.g. 'Sydney to Auckland' or 'SYD-AKL'"
+                        "e.g. 'Sydney to Honolulu' or 'SYD-HNL'"
                     ),
                 },
             },
