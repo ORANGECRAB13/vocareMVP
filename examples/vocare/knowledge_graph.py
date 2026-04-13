@@ -22,58 +22,105 @@ def seed_graph(driver):
     with driver.session() as session:
         session.run(
             """
-            // Customer
-            MERGE (c:Customer {booking_ref: 'QF-8842'})
-            SET c.name = 'Sarah Mitchell',
-                c.phone = '+61412345678',
+            // ── Customer ──────────────────────────────────────────────────
+            MERGE (c:Customer {booking_ref: 'QF-7731'})
+            SET c.name = 'Von',
+                c.phone = '+61400000000',
                 c.loyalty_tier = 'Gold'
 
-            // Flight operations
-            MERGE (f1:FlightOperation {flight_number: 'QF451'})
-            SET f1.route = 'SYD-AKL',
-                f1.status = 'operated',
-                f1.reason = NULL,
-                f1.scheduled_time = '2026-04-08T14:00',
-                f1.description = 'Sydney to Auckland, arrived on time'
+            // ── Flights ───────────────────────────────────────────────────
+            MERGE (f1:FlightOperation {flight_number: 'QF107'})
+            SET f1.route = 'SYD-GUM',
+                f1.status = 'CANCELLED',
+                f1.reason = 'hydraulic fault on VH-OQF',
+                f1.scheduled_time = '2026-04-14T08:30',
+                f1.description = 'Sydney to Guam, cancelled due to maintenance hold'
 
-            MERGE (f2:FlightOperation {flight_number: 'QF452'})
-            SET f2.route = 'AKL-LAX',
-                f2.status = 'CANCELLED',
-                f2.reason = 'weather/volcanic ash',
-                f2.scheduled_time = '2026-04-08T23:30',
-                f2.description = 'Auckland to Los Angeles, cancelled due to volcanic ash'
+            MERGE (f2:FlightOperation {flight_number: 'QF821'})
+            SET f2.route = 'GUM-HNL',
+                f2.status = 'DISRUPTED',
+                f2.reason = 'missed connection due to QF107 cancellation',
+                f2.scheduled_time = '2026-04-14T14:15',
+                f2.description = 'Guam to Honolulu, disrupted by upstream cancellation'
 
-            // Baggage
-            MERGE (b1:Baggage {tag: 'QFBAG-991201'})
-            SET b1.destination = 'LAX',
-                b1.location = 'AKL terminal',
-                b1.status = 'held'
+            MERGE (f3:FlightOperation {flight_number: 'QF815'})
+            SET f3.route = 'HNL-SFO',
+                f3.status = 'operated',
+                f3.reason = NULL,
+                f3.scheduled_time = '2026-04-15T09:00',
+                f3.description = 'Honolulu to San Francisco, unaffected'
 
-            // Rebooking options
-            MERGE (r1:Rebooking {alt_flight: 'QF454'})
-            SET r1.route = 'AKL-LAX',
-                r1.departure = '2026-04-09T11:00',
-                r1.seats_available = 3,
-                r1.cabin = 'economy'
+            // ── Alternative flight (Rebooking node type) ──────────────────
+            MERGE (r1:Rebooking {alt_flight: 'QF109'})
+            SET r1.route = 'SYD-HNL-SFO',
+                r1.departure = '2026-04-14T23:40',
+                r1.seats_available = 1,
+                r1.cabin = 'business',
+                r1.note = 'upgrade eligible as Gold member'
 
-            // Communications
-            MERGE (comm1:Communication {channel: 'SMS', sent_at: '2026-04-08T18:00'})
-            SET comm1.message = 'Your flight QF452 AKL-LAX has been cancelled due to weather. Please contact us for rebooking.'
+            // ── Baggage (4 bags, all auto-transferred) ────────────────────
+            MERGE (b1:Baggage {tag: 'QF77310001'})
+            SET b1.destination = 'SFO', b1.location = 'SYD terminal',
+                b1.status = 'transferred', b1.weight_kg = 22.3
 
-            MERGE (comm2:Communication {channel: 'Email', sent_at: '2026-04-08T18:05'})
-            SET comm2.message = 'Detailed cancellation notice with rebooking link'
+            MERGE (b2:Baggage {tag: 'QF77310002'})
+            SET b2.destination = 'SFO', b2.location = 'SYD terminal',
+                b2.status = 'transferred', b2.weight_kg = 18.7
 
-            // Relationships
-            MERGE (c)-[:HAS_FLIGHT]->(f1)
-            MERGE (c)-[:HAS_FLIGHT]->(f2)
-            MERGE (c)-[:HAS_BAGGAGE]->(b1)
-            MERGE (c)-[:HAS_REBOOKING_OPTION]->(r1)
-            MERGE (c)-[:RECEIVED_COMM]->(comm1)
-            MERGE (c)-[:RECEIVED_COMM]->(comm2)
-            MERGE (b1)-[:CHECKED_ON]->(f2)
+            MERGE (b3:Baggage {tag: 'QF77310003'})
+            SET b3.destination = 'SFO', b3.location = 'SYD terminal',
+                b3.status = 'transferred', b3.weight_kg = 15.0
+
+            MERGE (b4:Baggage {tag: 'QF77310004'})
+            SET b4.destination = 'SFO', b4.location = 'SYD terminal',
+                b4.status = 'transferred', b4.weight_kg = 9.2
+
+            // ── LAYER 1: Event chain (temporal provenance) ─────────────────
+            MERGE (e1:Event {id: 'evt-001'})
+            SET e1.type = 'FLIGHT_CANCELLED',
+                e1.timestamp = '2026-04-14T06:15',
+                e1.description = 'QF107 grounded — hydraulic fault VH-OQF'
+
+            MERGE (e2:Event {id: 'evt-002'})
+            SET e2.type = 'CONNECTION_BROKEN',
+                e2.timestamp = '2026-04-14T06:17',
+                e2.description = 'QF821 GUM→HNL missed — downstream of QF107'
+
+            MERGE (e3:Event {id: 'evt-003'})
+            SET e3.type = 'BAGS_AUTO_TRANSFERRED',
+                e3.timestamp = '2026-04-14T06:45',
+                e3.description = '4 bags rerouted to QF109 SYD→HNL→SFO'
+
+            MERGE (e1)-[:TRIGGERED]->(e2)
+            MERGE (e2)-[:TRIGGERED]->(e3)
+            MERGE (c)-[:EXPERIENCED]->(e1)
+
+            // ── LAYER 2: CallContext node (call-readiness brief) ───────────
+            MERGE (ctx:CallContext {booking_ref: 'QF-7731'})
+            SET ctx.primary_issue = 'QF107 cancellation cascades to QF821 disruption',
+                ctx.recommended_action = 'Offer QF109 SYD→HNL→SFO Business, 23:40 tonight',
+                ctx.loyalty_flag = 'Gold — upgrade eligible',
+                ctx.baggage_status = '4 bags auto-transferred to QF109, no action needed',
+                ctx.urgency = 'HIGH'
+
+            MERGE (c)-[:HAS_CALL_CONTEXT]->(ctx)
+
+            // ── Core relationships (with LAYER 3: provenance source) ───────
+            MERGE (c)-[:HAS_FLIGHT {source: 'Qantas OpsDB', fetched_at: '2026-04-14T06:00'}]->(f1)
+            MERGE (c)-[:HAS_FLIGHT {source: 'Qantas OpsDB', fetched_at: '2026-04-14T06:00'}]->(f2)
+            MERGE (c)-[:HAS_FLIGHT {source: 'Qantas OpsDB', fetched_at: '2026-04-14T06:00'}]->(f3)
+            MERGE (c)-[:HAS_REBOOKING_OPTION {source: 'Inventory API', fetched_at: '2026-04-14T06:50'}]->(r1)
+            MERGE (c)-[:HAS_BAGGAGE {source: 'Baggage Handling System', fetched_at: '2026-04-14T06:45'}]->(b1)
+            MERGE (c)-[:HAS_BAGGAGE {source: 'Baggage Handling System', fetched_at: '2026-04-14T06:45'}]->(b2)
+            MERGE (c)-[:HAS_BAGGAGE {source: 'Baggage Handling System', fetched_at: '2026-04-14T06:45'}]->(b3)
+            MERGE (c)-[:HAS_BAGGAGE {source: 'Baggage Handling System', fetched_at: '2026-04-14T06:45'}]->(b4)
+            MERGE (b1)-[:CHECKED_ON]->(f1)
+            MERGE (b2)-[:CHECKED_ON]->(f1)
+            MERGE (b3)-[:CHECKED_ON]->(f1)
+            MERGE (b4)-[:CHECKED_ON]->(f1)
             """
         )
-    logger.info("Neo4j graph seeded with Qantas flight disruption data")
+    logger.info("Neo4j graph seeded with Von / QF-7731 context graph (temporal + call-readiness + provenance)")
 
 
 def _query_customer_context_sync(driver, booking_ref: str) -> Optional[str]:
@@ -196,6 +243,9 @@ def _query_booking_by_name_and_route_sync(
         "los angeles": "LAX",
         "melbourne": "MEL",
         "brisbane": "BNE",
+        "guam": "GUM",
+        "honolulu": "HNL",
+        "san francisco": "SFO",
     }
     route_upper = route.upper().strip()
     route_lower = route.lower().strip()
