@@ -573,11 +573,13 @@ def build_traversal_sequence(graph: Dict) -> List[Dict]:
 
     # Traverse in domain order
     traversal_order = [
-        "Booked flight",
-        "Checked bag",
-        "Rebooking option",
+        "Qantas OpsDB",
+        "Baggage Handling System",
+        "Inventory API",
         "Notified",
         "Checked on",
+        "Experienced",
+        "Triggered",
     ]
 
     for label in traversal_order:
@@ -644,11 +646,6 @@ def build_keyword_map(graph: Dict) -> Dict[str, str]:
                 mapping["cancelled"] = nid
                 mapping["cancellation"] = nid
                 mapping["canceled"] = nid
-            if "volcanic" in sublabel:
-                mapping["volcanic"] = nid
-                mapping["volcano"] = nid
-                mapping["ash"] = nid
-
         elif ntype == "Baggage":
             # Match on "bag", "baggage", "luggage", "suitcase"
             mapping["baggage"] = nid
@@ -673,6 +670,11 @@ def build_keyword_map(graph: Dict) -> Dict[str, str]:
                 mapping["alternative"] = nid
                 mapping["options"] = nid
                 mapping["next flight"] = nid
+                mapping["tonight"] = nid
+                mapping["23:40"] = nid
+                mapping["business"] = nid
+                mapping["upgrade"] = nid
+                mapping["qf109"] = nid
 
         elif ntype == "Communication":
             # Match on channel name
@@ -691,5 +693,18 @@ def build_keyword_map(graph: Dict) -> Dict[str, str]:
                 mapping["notified"] = nid
                 mapping["contacted"] = nid
                 mapping["informed"] = nid
+
+        elif ntype == "Event":
+            etype = node.get("label", "").lower()
+            if "cancelled" in etype or "cancellation" in etype:
+                mapping["grounded"] = nid
+                mapping["fault"] = nid
+                mapping["hydraulic"] = nid
+            elif "connection" in etype or "missed" in etype:
+                mapping["missed"] = nid
+                mapping["connection broken"] = nid
+            elif "bag" in etype or "transfer" in etype:
+                mapping["rerouted"] = nid
+                mapping["transferred"] = nid
 
     return mapping
