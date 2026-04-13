@@ -369,7 +369,10 @@ app = FastAPI(lifespan=lifespan)
 
 
 async def _put_graph_event(event_queue: asyncio.Queue, event: dict):
-    """Put an event into the session queue and, if demo mode is active, also append to demo_events."""
+    """Put an event into the session queue.
+
+    If demo mode is active, also appends to demo_events for fan-out to viewers.
+    """
     await event_queue.put(event)
     if demo_pc_id is not None:
         demo_events.append(event)
