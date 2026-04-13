@@ -851,6 +851,8 @@
       graphRenderer.reset();
       document.getElementById('graphPlaceholder').style.display = 'none';
       document.getElementById('graphStatus').textContent = 'Watching demo...';
+      document.getElementById('transcriptMessages').innerHTML = '';
+      document.getElementById('transcript').style.display = 'block';
 
       // Start polling demo events
       const poll = async () => {
@@ -886,6 +888,8 @@
         viewerPollInterval = null;
       }
       isViewer = false;
+      document.getElementById('transcript').style.display = 'none';
+      document.getElementById('transcriptMessages').innerHTML = '';
     }
 
     // startDemoCheck() is called after graphRenderer is initialized (below)
