@@ -568,7 +568,9 @@
 
       <div class="graph-legend" id="graphLegend" style="display:none;">
         <div class="legend-item"><div class="legend-dot" style="background:#f59e0b;"></div>Customer</div>
+        <div class="legend-item"><div class="legend-dot" style="background:#64748b;"></div>Channel</div>
         <div class="legend-item"><div class="legend-dot" style="background:#3b82f6;"></div>Flight</div>
+        <div class="legend-item"><div class="legend-dot" style="background:#fbbf24;"></div>CRM</div>
         <div class="legend-item"><div class="legend-dot" style="background:#10b981;"></div>Baggage</div>
         <div class="legend-item"><div class="legend-dot" style="background:#8b5cf6;"></div>Rebooking</div>
         <div class="legend-item"><div class="legend-dot" style="background:#f97316;"></div>Comms</div>
@@ -934,7 +936,9 @@
     // -----------------------------------------------------------------------
     const TYPE_COLORS = {
       Customer:        { hex: '#f59e0b', rgb: '245,158,11' },
+      Channel:         { hex: '#64748b', rgb: '100,116,139' },
       FlightOperation: { hex: '#3b82f6', rgb: '59,130,246' },
+      CRMRecord:       { hex: '#fbbf24', rgb: '251,191,36' },
       Baggage:         { hex: '#10b981', rgb: '16,185,129' },
       Rebooking:       { hex: '#8b5cf6', rgb: '139,92,246' },
       Communication:   { hex: '#f97316', rgb: '249,115,22' },
@@ -944,29 +948,53 @@
     const HIGHLIGHT_RGB = '0,229,255';
     const NODE_ICONS = {
       Customer: '\u{1F464}',
+      Channel: '\u{1F3E2}',
       FlightOperation: '\u2708\uFE0F',
+      CRMRecord: '\u{1F4CB}',
       Baggage: '\u{1F9F3}',
       Rebooking: '\u{1F504}',
       Communication: '\u2709\uFE0F',
       Event: '\u26A1',
     };
 
-    // Fixed 3D layout — layered pyramid receding into screen
+    // Fixed 3D layout — org-chart hierarchy: Customer top, Channels middle, sub-nodes lower
     // Positions are percentage-based (x%, y%) + z in px
+    // Column centres: CRM=15, Comms=38, Baggage=62, CodeShare=85
     const LAYOUT_MAP = {
-      Customer:        [{ xPct: 50, yPct: 48, z: 0 }],
-      FlightOperation: [
-        { xPct: 22, yPct: 28, z: -200 },
-        { xPct: 50, yPct: 22, z: -200 },
-        { xPct: 78, yPct: 28, z: -200 },
+      Customer:        [{ xPct: 50, yPct: 6, z: 0 }],
+      Channel: [
+        { xPct: 15, yPct: 30, z: -150 },   // CRM
+        { xPct: 38, yPct: 30, z: -150 },   // Communications
+        { xPct: 62, yPct: 30, z: -150 },   // Baggage Handling
+        { xPct: 85, yPct: 30, z: -150 },   // CodeShare Flights
       ],
-      Baggage:         [{ xPct: 25, yPct: 58, z: -350 }],
-      Rebooking:       [{ xPct: 75, yPct: 58, z: -350 }],
-      Communication:   [{ xPct: 35, yPct: 78, z: -500 }, { xPct: 65, yPct: 78, z: -500 }],
+      FlightOperation: [
+        { xPct: 9,  yPct: 52, z: -300 },   // QF82 under CRM
+      ],
+      CRMRecord: [
+        { xPct: 17, yPct: 52, z: -300 },
+        { xPct: 11, yPct: 68, z: -350 },
+        { xPct: 21, yPct: 68, z: -350 },
+      ],
+      Communication: [
+        { xPct: 31, yPct: 52, z: -300 },
+        { xPct: 38, yPct: 52, z: -300 },
+        { xPct: 45, yPct: 52, z: -300 },
+      ],
+      Baggage: [
+        { xPct: 57, yPct: 52, z: -300 },
+        { xPct: 67, yPct: 52, z: -300 },
+      ],
+      Rebooking: [
+        { xPct: 79, yPct: 52, z: -300 },
+        { xPct: 85, yPct: 52, z: -300 },
+        { xPct: 91, yPct: 52, z: -300 },
+      ],
       Event: [
-        { xPct: 18, yPct: 78, z: -300 },
-        { xPct: 50, yPct: 85, z: -300 },
-        { xPct: 82, yPct: 78, z: -300 },
+        { xPct: 20, yPct: 84, z: -450 },
+        { xPct: 38, yPct: 84, z: -450 },
+        { xPct: 56, yPct: 84, z: -450 },
+        { xPct: 74, yPct: 84, z: -450 },
       ],
     };
 
@@ -1062,7 +1090,7 @@
         });
 
         // Create node divs with 3D positions
-        const typeOrder = ['Customer', 'FlightOperation', 'Baggage', 'Rebooking', 'Communication', 'Event'];
+        const typeOrder = ['Customer', 'Channel', 'FlightOperation', 'CRMRecord', 'Communication', 'Baggage', 'Rebooking', 'Event'];
         typeOrder.forEach(type => {
           const group = groups[type] || [];
           const layouts = LAYOUT_MAP[type] || [];
