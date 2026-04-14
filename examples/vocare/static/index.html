@@ -964,40 +964,40 @@
     // Each channel owns a diagonal quadrant; sub-nodes fan further in that direction.
     // z-depth reinforces hierarchy: 0 (Customer) → -150 (Channels) → -300 (sub-nodes) → -450 (Events)
     const LAYOUT_MAP = {
-      Customer:        [{ xPct: 50, yPct: 45, z: 0 }],
+      Customer:        [{ xPct: 49.8, yPct: 46.1, z: 0 }],
       Channel: [
-        { xPct: 27, yPct: 22, z: -150 },   // CRM          — upper-left
-        { xPct: 73, yPct: 22, z: -150 },   // Communications — upper-right
-        { xPct: 27, yPct: 68, z: -150 },   // Baggage Handling — lower-left
-        { xPct: 73, yPct: 68, z: -150 },   // CodeShare Flights — lower-right
+        { xPct: 36.7, yPct: 32.7, z: -150 },
+        { xPct: 62.1, yPct: 32.8, z: -150 },
+        { xPct: 37.6, yPct: 58.6, z: -150 },
+        { xPct: 62.6, yPct: 58.6, z: -150 },
       ],
       FlightOperation: [
-        { xPct: 10, yPct: 38, z: -300 },   // QF82 — left flank of CRM quadrant
+        { xPct: 8.6,  yPct: 45.0, z: -300 },
       ],
       CRMRecord: [
-        { xPct: 14, yPct: 24, z: -300 },   // fanning upper-left from CRM
-        { xPct: 24, yPct: 12, z: -300 },
-        { xPct: 38, yPct: 6,  z: -300 },
+        { xPct: 9.3,  yPct: 24.9, z: -300 },
+        { xPct: 17.6, yPct: 16.0, z: -300 },
+        { xPct: 28.2, yPct: 10.7, z: -300 },
       ],
       Communication: [
-        { xPct: 62, yPct: 6,  z: -300 },   // fanning upper-right from Comms
-        { xPct: 76, yPct: 12, z: -300 },
-        { xPct: 86, yPct: 24, z: -300 },
+        { xPct: 71.1, yPct: 10.9, z: -300 },
+        { xPct: 81.9, yPct: 15.7, z: -300 },
+        { xPct: 90.5, yPct: 25.5, z: -300 },
       ],
       Baggage: [
-        { xPct: 12, yPct: 66, z: -300 },   // fanning lower-left from Baggage
-        { xPct: 22, yPct: 80, z: -300 },
+        { xPct: 6.7,  yPct: 73.8, z: -300 },
+        { xPct: 13.5, yPct: 82.8, z: -300 },
       ],
       Rebooking: [
-        { xPct: 88, yPct: 56, z: -300 },   // fanning lower-right from CodeShare
-        { xPct: 82, yPct: 72, z: -300 },
-        { xPct: 76, yPct: 84, z: -300 },
+        { xPct: 93.8, yPct: 62.9, z: -300 },
+        { xPct: 90.3, yPct: 76.9, z: -300 },
+        { xPct: 81.8, yPct: 87.2, z: -300 },
       ],
       Event: [
-        { xPct: 36, yPct: 84, z: -450 },   // temporal chain — bottom centre arc
-        { xPct: 44, yPct: 92, z: -450 },
-        { xPct: 56, yPct: 92, z: -450 },
-        { xPct: 64, yPct: 84, z: -450 },
+        { xPct: 44.3, yPct: 78.5, z: -450 },
+        { xPct: 37.7, yPct: 87.8, z: -450 },
+        { xPct: 60.1, yPct: 87.4, z: -450 },
+        { xPct: 52.7, yPct: 78.5, z: -450 },
       ],
     };
 
