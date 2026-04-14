@@ -326,6 +326,9 @@
     .graph-node.size-lg { width: 80px; height: 80px; }
     .graph-node.size-lg .node-icon { font-size: 20px; }
 
+    .graph-node.size-md { width: 68px; height: 68px; }
+    .graph-node.size-md .node-icon { font-size: 17px; }
+
     .graph-node.size-sm { width: 60px; height: 60px; }
 
     .graph-node .node-label {
@@ -957,44 +960,44 @@
       Event: '\u26A1',
     };
 
-    // Fixed 3D layout — org-chart hierarchy: Customer top, Channels middle, sub-nodes lower
-    // Positions are percentage-based (x%, y%) + z in px
-    // Column centres: CRM=15, Comms=38, Baggage=62, CodeShare=85
+    // Radial layout — Customer at centre, 4 Channels surrounding it, sub-nodes radiating outward
+    // Each channel owns a diagonal quadrant; sub-nodes fan further in that direction.
+    // z-depth reinforces hierarchy: 0 (Customer) → -150 (Channels) → -300 (sub-nodes) → -450 (Events)
     const LAYOUT_MAP = {
-      Customer:        [{ xPct: 50, yPct: 6, z: 0 }],
+      Customer:        [{ xPct: 50, yPct: 45, z: 0 }],
       Channel: [
-        { xPct: 15, yPct: 30, z: -150 },   // CRM
-        { xPct: 38, yPct: 30, z: -150 },   // Communications
-        { xPct: 62, yPct: 30, z: -150 },   // Baggage Handling
-        { xPct: 85, yPct: 30, z: -150 },   // CodeShare Flights
+        { xPct: 27, yPct: 22, z: -150 },   // CRM          — upper-left
+        { xPct: 73, yPct: 22, z: -150 },   // Communications — upper-right
+        { xPct: 27, yPct: 68, z: -150 },   // Baggage Handling — lower-left
+        { xPct: 73, yPct: 68, z: -150 },   // CodeShare Flights — lower-right
       ],
       FlightOperation: [
-        { xPct: 9,  yPct: 52, z: -300 },   // QF82 under CRM
+        { xPct: 10, yPct: 38, z: -300 },   // QF82 — left flank of CRM quadrant
       ],
       CRMRecord: [
-        { xPct: 17, yPct: 52, z: -300 },
-        { xPct: 11, yPct: 68, z: -350 },
-        { xPct: 21, yPct: 68, z: -350 },
+        { xPct: 14, yPct: 24, z: -300 },   // fanning upper-left from CRM
+        { xPct: 24, yPct: 12, z: -300 },
+        { xPct: 38, yPct: 6,  z: -300 },
       ],
       Communication: [
-        { xPct: 31, yPct: 52, z: -300 },
-        { xPct: 38, yPct: 52, z: -300 },
-        { xPct: 45, yPct: 52, z: -300 },
+        { xPct: 62, yPct: 6,  z: -300 },   // fanning upper-right from Comms
+        { xPct: 76, yPct: 12, z: -300 },
+        { xPct: 86, yPct: 24, z: -300 },
       ],
       Baggage: [
-        { xPct: 57, yPct: 52, z: -300 },
-        { xPct: 67, yPct: 52, z: -300 },
+        { xPct: 12, yPct: 66, z: -300 },   // fanning lower-left from Baggage
+        { xPct: 22, yPct: 80, z: -300 },
       ],
       Rebooking: [
-        { xPct: 79, yPct: 52, z: -300 },
-        { xPct: 85, yPct: 52, z: -300 },
-        { xPct: 91, yPct: 52, z: -300 },
+        { xPct: 88, yPct: 56, z: -300 },   // fanning lower-right from CodeShare
+        { xPct: 82, yPct: 72, z: -300 },
+        { xPct: 76, yPct: 84, z: -300 },
       ],
       Event: [
-        { xPct: 20, yPct: 84, z: -450 },
-        { xPct: 38, yPct: 84, z: -450 },
-        { xPct: 56, yPct: 84, z: -450 },
-        { xPct: 74, yPct: 84, z: -450 },
+        { xPct: 36, yPct: 84, z: -450 },   // temporal chain — bottom centre arc
+        { xPct: 44, yPct: 92, z: -450 },
+        { xPct: 56, yPct: 92, z: -450 },
+        { xPct: 64, yPct: 84, z: -450 },
       ],
     };
 
@@ -1099,7 +1102,7 @@
             const color = TYPE_COLORS[n.type] || TYPE_COLORS.Customer;
 
             const el = document.createElement('div');
-            el.className = `graph-node ${type === 'Customer' ? 'size-lg' : 'size-sm'} inactive`;
+            el.className = `graph-node ${type === 'Customer' ? 'size-lg' : type === 'Channel' ? 'size-md' : 'size-sm'} inactive`;
             el.style.setProperty('--node-color', color.hex);
             el.style.setProperty('--node-color-alpha', `rgba(${color.rgb}, 0.4)`);
             el.style.setProperty('--node-color-alpha-dim', `rgba(${color.rgb}, 0.15)`);
