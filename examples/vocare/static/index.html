@@ -143,6 +143,46 @@
     .status-connected { color: #22c55e !important; }
     .status-error { color: #ef4444 !important; }
 
+    .mode-selector {
+      display: flex;
+      margin-bottom: 1.5rem;
+      border: 1px solid #333;
+      border-radius: 8px;
+      overflow: hidden;
+    }
+
+    .mode-btn {
+      flex: 1;
+      padding: 0.5rem;
+      background: #1a1a1a;
+      color: #888;
+      border: none;
+      font-size: 0.8rem;
+      font-weight: 600;
+      letter-spacing: 0.08em;
+      cursor: pointer;
+      transition: background 0.15s, color 0.15s;
+    }
+
+    .mode-btn.active {
+      background: #2563eb;
+      color: #fff;
+    }
+
+    .mode-btn:not(.active):hover {
+      background: #222;
+      color: #ccc;
+    }
+
+    .viewer-banner {
+      text-align: center;
+      padding: 1rem;
+      color: #888;
+      font-size: 0.85rem;
+    }
+
+    .viewer-banner.active { color: #22c55e; }
+
     .audio-indicator {
       display: none;
       justify-content: center;
@@ -269,7 +309,7 @@
       border: 2px solid var(--node-color);
       box-shadow: 0 0 12px var(--node-color-alpha);
       transform: translate3d(var(--x), var(--y), var(--z)) translate(-50%, -50%);
-      transition: transform 0.8s cubic-bezier(0.34, 1.56, 0.64, 1),
+      transition: transform 0.6s cubic-bezier(0.22, 1, 0.36, 1),
                   opacity 0.5s ease,
                   box-shadow 0.3s ease,
                   border-color 0.3s ease;
@@ -285,6 +325,9 @@
 
     .graph-node.size-lg { width: 80px; height: 80px; }
     .graph-node.size-lg .node-icon { font-size: 20px; }
+
+    .graph-node.size-md { width: 68px; height: 68px; }
+    .graph-node.size-md .node-icon { font-size: 17px; }
 
     .graph-node.size-sm { width: 60px; height: 60px; }
 
@@ -387,6 +430,63 @@
       .panel-left { border-right: none; border-bottom: 1px solid #1a1a1a; }
       .panel-right { min-height: 400px; }
     }
+
+    /* Transcript panel */
+    #transcript {
+      display: none;
+      margin-top: 1rem;
+      flex-shrink: 0;
+    }
+
+    .transcript-label {
+      font-size: 0.7rem;
+      font-weight: 500;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: #555;
+      margin-bottom: 0.5rem;
+    }
+
+    .transcript-messages {
+      max-height: 280px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    /* Hide scrollbar but keep scrollability */
+    .transcript-messages::-webkit-scrollbar { width: 4px; }
+    .transcript-messages::-webkit-scrollbar-track { background: transparent; }
+    .transcript-messages::-webkit-scrollbar-thumb { background: #2a2a2a; border-radius: 2px; }
+
+    .transcript-user,
+    .transcript-bot {
+      display: flex;
+    }
+
+    .transcript-user { justify-content: flex-end; }
+    .transcript-bot  { justify-content: flex-start; }
+
+    .transcript-user .transcript-bub {
+      background: #1d4ed8;
+      color: #fff;
+      border-radius: 12px 12px 2px 12px;
+    }
+
+    .transcript-bot .transcript-bub {
+      background: #1e293b;
+      color: #e2e8f0;
+      border-radius: 12px 12px 12px 2px;
+    }
+
+    .transcript-bub {
+      padding: 6px 10px;
+      max-width: 80%;
+      font-size: 0.82rem;
+      line-height: 1.5;
+      word-break: break-word;
+    }
   </style>
 </head>
 <body>
@@ -395,6 +495,14 @@
     <div class="panel-left">
       <h1>Vocare</h1>
 
+      <div class="mode-selector">
+        <button class="mode-btn active" data-mode="demo" id="modeDemoBtn">DEMO</button>
+        <button class="mode-btn" data-mode="indiv" id="modeIndivBtn">INDIV</button>
+      </div>
+
+      <div class="viewer-banner" id="viewerBanner" style="display:none;"></div>
+
+      <div id="controlsSection">
       <div class="config-group">
         <label for="stt">Speech-to-Text</label>
         <select id="stt">
@@ -428,6 +536,7 @@
 
       <button class="btn" id="connectBtn">Connect</button>
       <button class="btn" id="disconnectBtn">Disconnect</button>
+      </div><!-- /controlsSection -->
 
       <div class="audio-indicator" id="audioIndicator">
         <div class="audio-bar"></div>
@@ -437,6 +546,11 @@
       </div>
 
       <div id="status"></div>
+
+      <div id="transcript">
+        <div class="transcript-label">Transcript</div>
+        <div id="transcriptMessages" class="transcript-messages"></div>
+      </div>
     </div>
 
     <!-- Right panel: graph visualization -->
@@ -457,10 +571,13 @@
 
       <div class="graph-legend" id="graphLegend" style="display:none;">
         <div class="legend-item"><div class="legend-dot" style="background:#f59e0b;"></div>Customer</div>
+        <div class="legend-item"><div class="legend-dot" style="background:#64748b;"></div>Channel</div>
         <div class="legend-item"><div class="legend-dot" style="background:#3b82f6;"></div>Flight</div>
+        <div class="legend-item"><div class="legend-dot" style="background:#fbbf24;"></div>CRM</div>
         <div class="legend-item"><div class="legend-dot" style="background:#10b981;"></div>Baggage</div>
         <div class="legend-item"><div class="legend-dot" style="background:#8b5cf6;"></div>Rebooking</div>
         <div class="legend-item"><div class="legend-dot" style="background:#f97316;"></div>Comms</div>
+        <div class="legend-item"><div class="legend-dot" style="background:#6366f1;"></div>Event</div>
       </div>
     </div>
   </div>
@@ -473,12 +590,24 @@
     const disconnectBtn = document.getElementById('disconnectBtn');
     const statusEl = document.getElementById('status');
     const audioIndicator = document.getElementById('audioIndicator');
+    const controlsSection = document.getElementById('controlsSection');
+    const viewerBanner = document.getElementById('viewerBanner');
+    const modeDemoBtn = document.getElementById('modeDemoBtn');
+    const modeIndivBtn = document.getElementById('modeIndivBtn');
 
     let pc = null;
     let pcId = null;
     let dataChannel = null;
     let pingInterval = null;
+    let disconnectTimer = null;
     let eventSource = null;
+
+    // Mode state
+    let currentMode = 'demo';
+    let isViewer = false;
+    let viewerPollInterval = null;
+    let viewerCursor = 0;
+    let demoCheckInterval = null;
 
     function setStatus(msg, cls) {
       statusEl.textContent = msg;
@@ -488,13 +617,38 @@
     async function connect() {
       connectBtn.disabled = true;
       setStatus('Connecting...');
+      stopViewer();
+      stopDemoCheck();
+      viewerBanner.style.display = 'none';
       graphRenderer.reset();
 
       try {
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        const stream = await navigator.mediaDevices.getUserMedia({
+          audio: {
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true,
+          },
+        });
+
+        // Fetch fresh TURN credentials from the backend (Twilio NTS)
+        let iceServers = [{ urls: 'stun:stun.l.google.com:19302' }];
+        try {
+          const iceRes = await fetch('/api/ice');
+          if (iceRes.ok) {
+            const body = await iceRes.json();
+            if (body.iceServers && body.iceServers.length) {
+              iceServers = body.iceServers;
+              console.log('[ICE] Using', iceServers.length, 'servers from backend');
+            }
+          }
+        } catch (e) {
+          console.warn('[ICE] Failed to fetch, using STUN only', e);
+        }
 
         pc = new RTCPeerConnection({
-          iceServers: [{ urls: 'stun:stun.l.google.com:19302' }],
+          iceServers,
+          iceTransportPolicy: 'relay',  // force TURN-only to avoid private-IP issues
         });
 
         stream.getTracks().forEach(track => pc.addTrack(track, stream));
@@ -515,13 +669,31 @@
         };
 
         pc.onconnectionstatechange = () => {
-          if (pc.connectionState === 'connected') {
+          const state = pc.connectionState;
+          if (state === 'connected') {
+            // Clear any pending disconnect timer — connection recovered
+            if (disconnectTimer) { clearTimeout(disconnectTimer); disconnectTimer = null; }
             setStatus('Connected', 'connected');
             audioIndicator.classList.add('active');
             disconnectBtn.style.display = 'block';
-          } else if (pc.connectionState === 'disconnected' || pc.connectionState === 'failed') {
+            document.getElementById('transcript').style.display = 'block';
+          } else if (state === 'failed') {
+            // 'failed' is permanent — clean up immediately
             cleanup();
             setStatus('Disconnected', 'error');
+          } else if (state === 'disconnected') {
+            // 'disconnected' is transient — ICE is retrying. Give it 5s to recover
+            // before treating it as a real disconnect. Calling cleanup() immediately
+            // here is what caused the AbortChunk teardown mid-TTS.
+            if (!disconnectTimer) {
+              disconnectTimer = setTimeout(() => {
+                disconnectTimer = null;
+                if (pc && pc.connectionState === 'disconnected') {
+                  cleanup();
+                  setStatus('Disconnected', 'error');
+                }
+              }, 5000);
+            }
           }
         };
 
@@ -553,6 +725,7 @@
             llm: document.getElementById('llm').value,
             tts: document.getElementById('tts').value,
             use_kg: useKg,
+            mode: currentMode,
           }),
         });
 
@@ -560,10 +733,8 @@
         pcId = answer.pc_id;
         await pc.setRemoteDescription(answer);
 
-        // Connect to SSE for graph events
-        if (useKg) {
-          connectGraphSSE(pcId);
-        }
+        // Start polling for graph and transcript events
+        connectGraphSSE(pcId, useKg);
 
       } catch (err) {
         console.error(err);
@@ -572,49 +743,201 @@
       }
     }
 
-    function connectGraphSSE(sessionPcId) {
+    function appendTranscriptBubble(speaker, text) {
+      const messages = document.getElementById('transcriptMessages');
+      const row = document.createElement('div');
+      row.className = speaker === 'user' ? 'transcript-user' : 'transcript-bot';
+      const bub = document.createElement('div');
+      bub.className = 'transcript-bub';
+      bub.textContent = text;
+      row.appendChild(bub);
+      messages.appendChild(row);
+      messages.scrollTop = messages.scrollHeight;
+    }
+
+    // Shared graph event handler — used by both presenter poll and viewer poll
+    function handleGraphEvent(event) {
       const graphStatusEl = document.getElementById('graphStatus');
       const placeholder = document.getElementById('graphPlaceholder');
       const legend = document.getElementById('graphLegend');
 
-      graphStatusEl.textContent = 'Connecting to graph...';
-
-      eventSource = new EventSource(`/api/graph/events/${encodeURIComponent(sessionPcId)}`);
-
-      eventSource.onmessage = (e) => {
-        console.log('[SSE]', e.data);
-        const event = JSON.parse(e.data);
-
-        if (event.type === 'graph') {
-          placeholder.style.display = 'none';
-          legend.style.display = 'flex';
-          graphStatusEl.textContent = 'Traversing graph...';
-          graphRenderer.loadGraph(event.data);
-        } else if (event.type === 'traverse') {
-          graphRenderer.animateTraversal(event.fromId, event.toId, event.label);
-        } else if (event.type === 'activate') {
-          graphRenderer.activateNode(event.nodeId);
-        } else if (event.type === 'context_loaded') {
-          graphStatusEl.textContent = 'Context loaded \u2014 agent has full awareness';
-        } else if (event.type === 'highlight') {
-          graphRenderer.highlightNode(event.nodeId);
-        } else if (event.type === 'error') {
-          graphStatusEl.textContent = 'Graph: ' + (event.message || 'unavailable');
-          console.warn('[SSE] Graph error:', event.message);
-        }
-      };
-
-      eventSource.onerror = (err) => {
-        console.warn('[SSE] EventSource error, closing', err);
-        if (eventSource) {
-          eventSource.close();
-          eventSource = null;
-        }
-      };
+      if (event.type === 'graph') {
+        placeholder.style.display = 'none';
+        legend.style.display = 'flex';
+        graphStatusEl.textContent = 'Traversing graph...';
+        graphRenderer.loadGraph(event.data);
+      } else if (event.type === 'traverse') {
+        graphRenderer.animateTraversal(event.fromId, event.toId, event.label);
+      } else if (event.type === 'activate') {
+        graphRenderer.activateNode(event.nodeId);
+      } else if (event.type === 'context_loaded') {
+        graphStatusEl.textContent = 'Context loaded \u2014 agent has full awareness';
+      } else if (event.type === 'highlight') {
+        graphRenderer.highlightNode(event.nodeId);
+      } else if (event.type === 'path') {
+        graphRenderer.highlightPath(event.steps, event.color);
+      } else if (event.type === 'clear_path') {
+        graphRenderer.clearPath();
+      } else if (event.type === 'user_transcription') {
+        appendTranscriptBubble('user', event.text);
+      } else if (event.type === 'bot_transcription') {
+        appendTranscriptBubble('bot', event.text);
+      }
     }
 
+    function connectGraphSSE(sessionPcId, useKg) {
+      const graphStatusEl = document.getElementById('graphStatus');
+      if (useKg) {
+        graphStatusEl.textContent = 'Connecting to graph...';
+      }
+
+      const poll = async () => {
+        try {
+          const res = await fetch(`/api/graph/poll?pc_id=${encodeURIComponent(sessionPcId)}`);
+          if (!res.ok) return;
+          const body = await res.json();
+          if (body.events && body.events.length > 0) {
+            console.log('[POLL]', body.events.length, 'events');
+            for (const ev of body.events) handleGraphEvent(ev);
+          }
+          if (body.closed) {
+            clearInterval(eventSource);
+            eventSource = null;
+          }
+        } catch (err) {
+          console.warn('[POLL] error', err);
+        }
+      };
+
+      // Reuse eventSource variable to hold interval id for cleanup parity
+      eventSource = setInterval(poll, 250);
+      poll();  // immediate first poll
+    }
+
+    // -----------------------------------------------------------------------
+    // Mode switching
+    // -----------------------------------------------------------------------
+    function setMode(mode) {
+      currentMode = mode;
+      modeDemoBtn.classList.toggle('active', mode === 'demo');
+      modeIndivBtn.classList.toggle('active', mode === 'indiv');
+
+      // Clean up any active viewer state
+      stopViewer();
+
+      if (mode === 'demo' && !pc) {
+        // Not connected — check if a demo is active to become a viewer
+        startDemoCheck();
+      } else {
+        stopDemoCheck();
+      }
+
+      if (mode === 'indiv') {
+        stopDemoCheck();
+        controlsSection.style.display = '';
+        viewerBanner.style.display = 'none';
+      }
+    }
+
+    modeDemoBtn.addEventListener('click', () => setMode('demo'));
+    modeIndivBtn.addEventListener('click', () => setMode('indiv'));
+
+    // -----------------------------------------------------------------------
+    // Demo viewer logic
+    // -----------------------------------------------------------------------
+    function startDemoCheck() {
+      stopDemoCheck();
+      const check = async () => {
+        if (currentMode !== 'demo' || pc) return; // already connected as presenter
+        try {
+          const res = await fetch('/api/demo/status');
+          if (!res.ok) return;
+          const body = await res.json();
+          if (body.active) {
+            enterViewerMode();
+          }
+        } catch (e) {
+          console.warn('[DEMO CHECK]', e);
+        }
+      };
+      demoCheckInterval = setInterval(check, 1500);
+      check(); // immediate
+    }
+
+    function stopDemoCheck() {
+      if (demoCheckInterval) {
+        clearInterval(demoCheckInterval);
+        demoCheckInterval = null;
+      }
+    }
+
+    function enterViewerMode() {
+      stopDemoCheck();
+      isViewer = true;
+      viewerCursor = 0;
+
+      // Hide call controls, show viewer banner
+      controlsSection.style.display = 'none';
+      viewerBanner.style.display = 'block';
+      viewerBanner.textContent = 'Watching demo...';
+      viewerBanner.className = 'viewer-banner active';
+
+      graphRenderer.reset();
+      document.getElementById('graphPlaceholder').style.display = 'none';
+      document.getElementById('graphStatus').textContent = 'Watching demo...';
+      document.getElementById('transcriptMessages').innerHTML = '';
+      document.getElementById('transcript').style.display = 'block';
+
+      // Start polling demo events
+      // Guard prevents two in-flight requests from sharing the same cursor value
+      // and processing the same events twice (most visible on large bot transcriptions).
+      let pollInFlight = false;
+      const poll = async () => {
+        if (pollInFlight) return;
+        pollInFlight = true;
+        try {
+          const res = await fetch(`/api/demo/poll?cursor=${viewerCursor}`);
+          if (!res.ok) return;
+          const body = await res.json();
+          if (body.events && body.events.length > 0) {
+            console.log('[DEMO POLL]', body.events.length, 'events');
+            for (const ev of body.events) handleGraphEvent(ev);
+          }
+          viewerCursor = body.cursor;
+          if (!body.active) {
+            viewerBanner.textContent = 'Demo ended';
+            viewerBanner.className = 'viewer-banner';
+            document.getElementById('graphStatus').textContent = 'Demo ended';
+            stopViewer();
+            // Show controls again so user can become presenter
+            controlsSection.style.display = '';
+          }
+        } catch (e) {
+          console.warn('[DEMO POLL] error', e);
+        } finally {
+          pollInFlight = false;
+        }
+      };
+
+      viewerPollInterval = setInterval(poll, 250);
+      poll(); // immediate
+    }
+
+    function stopViewer() {
+      if (viewerPollInterval) {
+        clearInterval(viewerPollInterval);
+        viewerPollInterval = null;
+      }
+      isViewer = false;
+      document.getElementById('transcript').style.display = 'none';
+      document.getElementById('transcriptMessages').innerHTML = '';
+    }
+
+    // startDemoCheck() is called after graphRenderer is initialized (below)
+
     function cleanup() {
-      if (eventSource) { eventSource.close(); eventSource = null; }
+      if (disconnectTimer) { clearTimeout(disconnectTimer); disconnectTimer = null; }
+      if (eventSource) { clearInterval(eventSource); eventSource = null; }
       if (pingInterval) clearInterval(pingInterval);
       pingInterval = null;
       if (dataChannel) dataChannel.close();
@@ -629,6 +952,14 @@
       connectBtn.disabled = false;
       connectBtn.style.display = 'block';
       disconnectBtn.style.display = 'none';
+      controlsSection.style.display = '';
+      document.getElementById('transcript').style.display = 'none';
+      document.getElementById('transcriptMessages').innerHTML = '';
+
+      // In demo mode, start checking for active demos again
+      if (currentMode === 'demo') {
+        startDemoCheck();
+      }
     }
 
     function disconnect() {
@@ -644,29 +975,66 @@
     // -----------------------------------------------------------------------
     const TYPE_COLORS = {
       Customer:        { hex: '#f59e0b', rgb: '245,158,11' },
+      Channel:         { hex: '#64748b', rgb: '100,116,139' },
       FlightOperation: { hex: '#3b82f6', rgb: '59,130,246' },
+      CRMRecord:       { hex: '#fbbf24', rgb: '251,191,36' },
       Baggage:         { hex: '#10b981', rgb: '16,185,129' },
       Rebooking:       { hex: '#8b5cf6', rgb: '139,92,246' },
       Communication:   { hex: '#f97316', rgb: '249,115,22' },
+      Event:           { hex: '#6366f1', rgb: '99,102,241' },
     };
     const HIGHLIGHT_COLOR = '#00e5ff';
     const HIGHLIGHT_RGB = '0,229,255';
     const NODE_ICONS = {
       Customer: '\u{1F464}',
+      Channel: '\u{1F3E2}',
       FlightOperation: '\u2708\uFE0F',
+      CRMRecord: '\u{1F4CB}',
       Baggage: '\u{1F9F3}',
       Rebooking: '\u{1F504}',
       Communication: '\u2709\uFE0F',
+      Event: '\u26A1',
     };
 
-    // Fixed 3D layout — layered pyramid receding into screen
-    // Positions are percentage-based (x%, y%) + z in px
+    // Radial layout — Customer at centre, 4 Channels surrounding it, sub-nodes radiating outward
+    // Each channel owns a diagonal quadrant; sub-nodes fan further in that direction.
+    // z-depth reinforces hierarchy: 0 (Customer) → -150 (Channels) → -300 (sub-nodes) → -450 (Events)
     const LAYOUT_MAP = {
-      Customer:        [{ xPct: 50, yPct: 48, z: 0 }],
-      FlightOperation: [{ xPct: 30, yPct: 28, z: -200 }, { xPct: 70, yPct: 28, z: -200 }],
-      Baggage:         [{ xPct: 25, yPct: 58, z: -350 }],
-      Rebooking:       [{ xPct: 75, yPct: 58, z: -350 }],
-      Communication:   [{ xPct: 35, yPct: 78, z: -500 }, { xPct: 65, yPct: 78, z: -500 }],
+      Customer:        [{ xPct: 49.8, yPct: 46.1, z: 0 }],
+      Channel: [
+        { xPct: 36.7, yPct: 32.7, z: -150 },
+        { xPct: 62.1, yPct: 32.8, z: -150 },
+        { xPct: 37.6, yPct: 58.6, z: -150 },
+        { xPct: 62.6, yPct: 58.6, z: -150 },
+      ],
+      FlightOperation: [
+        { xPct: 8.6,  yPct: 45.0, z: -300 },
+      ],
+      CRMRecord: [
+        { xPct: 9.3,  yPct: 24.9, z: -300 },
+        { xPct: 17.6, yPct: 16.0, z: -300 },
+        { xPct: 28.2, yPct: 10.7, z: -300 },
+      ],
+      Communication: [
+        { xPct: 71.1, yPct: 10.9, z: -300 },
+        { xPct: 81.9, yPct: 15.7, z: -300 },
+        { xPct: 90.5, yPct: 25.5, z: -300 },
+      ],
+      Baggage: [
+        { xPct: 6.7,  yPct: 73.8, z: -300 },
+        { xPct: 13.5, yPct: 82.8, z: -300 },
+      ],
+      Rebooking: [
+        { xPct: 93.8, yPct: 62.9, z: -300 },
+        { xPct: 90.3, yPct: 76.9, z: -300 },
+        { xPct: 81.8, yPct: 87.2, z: -300 },
+      ],
+      Event: [
+        { xPct: 44.3, yPct: 78.5, z: -450 },
+        { xPct: 37.7, yPct: 87.8, z: -450 },
+        { xPct: 60.1, yPct: 87.4, z: -450 },
+        { xPct: 52.7, yPct: 78.5, z: -450 },
+      ],
     };
 
     class GraphRenderer {
@@ -682,6 +1050,11 @@
         this._highlightGen = 0;
         this._animFrame = null;
         this._edgeAnimations = []; // active edge animations
+
+        // Path traversal state
+        this._activePath = null;     // { steps, color, edgeKeys }
+        this._pathRevealedIds = null; // Set of node IDs revealed so far
+        this._pathTimers = [];        // setTimeout handles
 
         // Parallax state
         this._rotX = 0;
@@ -761,7 +1134,7 @@
         });
 
         // Create node divs with 3D positions
-        const typeOrder = ['Customer', 'FlightOperation', 'Baggage', 'Rebooking', 'Communication'];
+        const typeOrder = ['Customer', 'Channel', 'FlightOperation', 'CRMRecord', 'Communication', 'Baggage', 'Rebooking', 'Event'];
         typeOrder.forEach(type => {
           const group = groups[type] || [];
           const layouts = LAYOUT_MAP[type] || [];
@@ -770,7 +1143,7 @@
             const color = TYPE_COLORS[n.type] || TYPE_COLORS.Customer;
 
             const el = document.createElement('div');
-            el.className = `graph-node ${type === 'Customer' ? 'size-lg' : 'size-sm'} inactive`;
+            el.className = `graph-node ${type === 'Customer' ? 'size-lg' : type === 'Channel' ? 'size-md' : 'size-sm'} inactive`;
             el.style.setProperty('--node-color', color.hex);
             el.style.setProperty('--node-color-alpha', `rgba(${color.rgb}, 0.4)`);
             el.style.setProperty('--node-color-alpha-dim', `rgba(${color.rgb}, 0.15)`);
@@ -930,6 +1303,67 @@
         }, 3000);
       }
 
+      highlightPath(steps, color) {
+        // Cancel any in-progress animation or pending highlight auto-clear
+        this._pathTimers.forEach(clearTimeout);
+        this._pathTimers = [];
+        ++this._highlightGen;
+
+        // Build edge key set for fast lookup
+        const edgeKeys = new Set();
+        for (let i = 0; i < steps.length - 1; i++) {
+          edgeKeys.add(`${steps[i]}::${steps[i + 1]}`);
+        }
+        this._activePath = { steps, color, edgeKeys };
+        this._pathRevealedIds = new Set();
+        const pathSet = new Set(steps);
+
+        // Dim all nodes immediately
+        this.nodes.forEach(n => {
+          n.el.classList.remove('active', 'highlighted', 'dimmed');
+          n.el.classList.add('inactive');
+          n.el.style.opacity = pathSet.has(n.id) ? '0.2' : '0.07';
+          n.el.style.boxShadow = '';
+        });
+        this.edges.forEach(e => { e.highlighted = false; });
+
+        // Reveal each step sequentially at 320ms/step
+        steps.forEach((nodeId, i) => {
+          const t = setTimeout(() => {
+            const node = this.nodeMap[nodeId];
+            if (!node || !this._activePath) return;
+
+            this._pathRevealedIds.add(nodeId);
+            node.el.classList.remove('inactive');
+            node.el.classList.add('active');
+            node.el.style.opacity = '1';
+            node.el.style.boxShadow = `0 0 28px ${color}, 0 0 56px ${color}44`;
+            setTimeout(() => { node.el.style.boxShadow = ''; }, 600);
+          }, i * 320);
+          this._pathTimers.push(t);
+        });
+      }
+
+      clearPath() {
+        this._pathTimers.forEach(clearTimeout);
+        this._pathTimers = [];
+        this._activePath = null;
+        this._pathRevealedIds = null;
+
+        this.nodes.forEach(n => {
+          n.el.classList.remove('highlighted', 'dimmed');
+          n.el.style.opacity = '';
+          n.el.style.boxShadow = '';
+          if (this.activeNodes.has(n.id)) {
+            n.el.classList.remove('inactive');
+            n.el.classList.add('active');
+          } else {
+            n.el.classList.remove('active');
+            n.el.classList.add('inactive');
+          }
+        });
+      }
+
       _renderLoop() {
         this._updateRotation();
         this._drawEdges();
@@ -962,6 +1396,7 @@
         if (this.edges.length === 0) return;
 
         const anyHighlighted = this.nodes.some(n => n.el.classList.contains('highlighted'));
+        const inPathMode = this._activePath !== null;
 
         this.edges.forEach(edge => {
           // Get projected screen positions from node divs
@@ -985,6 +1420,34 @@
           const curveOffset = len * 0.15; // 15% of line length
           const cpx = mx + perpX * curveOffset;
           const cpy = my + perpY * curveOffset;
+
+          // Path mode overrides all normal edge rendering
+          if (inPathMode) {
+            const ek  = `${edge.source.id}::${edge.target.id}`;
+            const ekR = `${edge.target.id}::${edge.source.id}`;
+            const isPathEdge = this._activePath.edgeKeys.has(ek) || this._activePath.edgeKeys.has(ekR);
+            const bothRevealed = this._pathRevealedIds &&
+              this._pathRevealedIds.has(edge.source.id) && this._pathRevealedIds.has(edge.target.id);
+
+            ctx.save();
+            if (isPathEdge && bothRevealed) {
+              ctx.strokeStyle = this._activePath.color;
+              ctx.lineWidth   = 2.5;
+              ctx.shadowColor = this._activePath.color;
+              ctx.shadowBlur  = 14;
+              ctx.globalAlpha = 0.85;
+            } else {
+              ctx.strokeStyle = '#1a1a1a';
+              ctx.lineWidth   = 0.8;
+              ctx.globalAlpha = 0.04;
+            }
+            ctx.beginPath();
+            ctx.moveTo(sx, sy);
+            ctx.quadraticCurveTo(cpx, cpy, tx, ty);
+            ctx.stroke();
+            ctx.restore();
+            return; // skip normal edge rendering
+          }
 
           // Depth-based line width and opacity
           const srcZ = edge.source.z;
@@ -1071,6 +1534,9 @@
     }
 
     const graphRenderer = new GraphRenderer('graphWorld', 'edgeCanvas');
+
+    // Start demo check on page load (default mode is demo)
+    startDemoCheck();
   </script>
 </body>
 </html>

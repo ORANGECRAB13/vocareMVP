@@ -1,0 +1,184 @@
+<h2>Real-time vs Final-only transcription</h2>
+<p class="subtitle">Both demos run automatically. Watch how each feels during a conversation.</p>
+
+<div class="split" style="gap:16px;align-items:flex-start;">
+
+  <!-- OPTION A: Real-time interim -->
+  <div class="mockup" data-choice="a" onclick="toggleSelect(this)" style="cursor:pointer;flex:1;">
+    <div class="mockup-header" style="display:flex;justify-content:space-between;align-items:center;">
+      <span>A — Real-time (interim)</span>
+      <span id="status-a" style="font-size:10px;color:#4a9eff;"></span>
+    </div>
+    <div class="mockup-body" style="background:#0d1117;padding:12px;min-height:220px;display:flex;flex-direction:column;gap:6px;font-family:system-ui,sans-serif;font-size:12px;overflow:hidden;" id="chat-a">
+    </div>
+  </div>
+
+  <!-- OPTION B: Final only -->
+  <div class="mockup" data-choice="b" onclick="toggleSelect(this)" style="cursor:pointer;flex:1;">
+    <div class="mockup-header" style="display:flex;justify-content:space-between;align-items:center;">
+      <span>B — Final only</span>
+      <span id="status-b" style="font-size:10px;color:#4a9eff;"></span>
+    </div>
+    <div class="mockup-body" style="background:#0d1117;padding:12px;min-height:220px;display:flex;flex-direction:column;gap:6px;font-family:system-ui,sans-serif;font-size:12px;overflow:hidden;" id="chat-b">
+    </div>
+  </div>
+
+</div>
+
+<p style="text-align:center;margin-top:12px;font-size:11px;color:#666;">Demos loop every 12 seconds &mdash; click a panel to select your preference</p>
+
+<style>
+.bubble-user {
+  display:flex;justify-content:flex-end;
+}
+.bubble-bot {
+  display:flex;justify-content:flex-start;
+}
+.bubble-user .bub {
+  background:#1d4ed8;color:#fff;
+  border-radius:12px 12px 2px 12px;
+  padding:6px 10px;max-width:80%;line-height:1.5;
+  word-break:break-word;
+}
+.bubble-bot .bub {
+  background:#1e293b;color:#e2e8f0;
+  border-radius:12px 12px 12px 2px;
+  padding:6px 10px;max-width:80%;line-height:1.5;
+}
+.interim {
+  opacity:0.6;font-style:italic;
+}
+.typing-dots::after {
+  content: '●●●';
+  animation: dots 1s steps(3,end) infinite;
+  font-size:8px;letter-spacing:2px;
+  display:inline-block;
+  vertical-align:middle;
+  color:#7c3aed;
+}
+@keyframes dots {
+  0%,100%{opacity:0.2} 33%{opacity:1} 66%{opacity:0.5}
+}
+</style>
+
+<script>
+const SCRIPT = [
+  {
+    speaker: 'user',
+    interim: ["What", "What flights", "What flights do", "What flights do I", "What flights do I have"],
+    final: "What flights do I have?"
+  },
+  {
+    speaker: 'bot',
+    final: "You have a flight to London on Friday at 8am.",
+    typing: true
+  },
+  {
+    speaker: 'user',
+    interim: ["And", "And do I", "And do I have any", "And do I have any meetings"],
+    final: "And do I have any meetings that day?"
+  },
+  {
+    speaker: 'bot',
+    final: "Yes — a 2pm standup and a 4pm design review.",
+    typing: true
+  }
+];
+
+function makeBubble(speaker, text, isInterim) {
+  const row = document.createElement('div');
+  row.className = speaker === 'user' ? 'bubble-user' : 'bubble-bot';
+  const bub = document.createElement('div');
+  bub.className = 'bub' + (isInterim ? ' interim' : '');
+  bub.textContent = text;
+  row.appendChild(bub);
+  return { row, bub };
+}
+
+function makeTyping() {
+  const row = document.createElement('div');
+  row.className = 'bubble-bot';
+  const bub = document.createElement('div');
+  bub.className = 'bub';
+  const dots = document.createElement('span');
+  dots.className = 'typing-dots';
+  bub.appendChild(dots);
+  row.appendChild(bub);
+  return row;
+}
+
+function delay(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+async function runChatA(container, statusEl) {
+  container.innerHTML = '';
+  for (const turn of SCRIPT) {
+    if (turn.speaker === 'user') {
+      statusEl.textContent = '🎙 Listening...';
+      // Show interim bubble that updates
+      const { row, bub } = makeBubble('user', '', true);
+      container.appendChild(row);
+      for (const word of turn.interim) {
+        bub.textContent = word + '...';
+        await delay(220);
+      }
+      // Finalize
+      bub.textContent = turn.final;
+      bub.classList.remove('interim');
+      statusEl.textContent = '';
+    } else {
+      statusEl.textContent = '🤖 Speaking...';
+      if (turn.typing) {
+        const dots = makeTyping();
+        container.appendChild(dots);
+        await delay(900);
+        container.removeChild(dots);
+      }
+      const { row } = makeBubble('bot', turn.final, false);
+      container.appendChild(row);
+      statusEl.textContent = '';
+    }
+    await delay(400);
+  }
+  await delay(2000);
+}
+
+async function runChatB(container, statusEl) {
+  container.innerHTML = '';
+  for (const turn of SCRIPT) {
+    if (turn.speaker === 'user') {
+      statusEl.textContent = '🎙 Listening...';
+      // Simulate delay while user finishes speaking (no interim shown)
+      await delay(turn.interim.length * 220 + 200);
+      // Bubble appears all at once
+      const { row } = makeBubble('user', turn.final, false);
+      container.appendChild(row);
+      statusEl.textContent = '';
+    } else {
+      statusEl.textContent = '🤖 Speaking...';
+      if (turn.typing) {
+        const dots = makeTyping();
+        container.appendChild(dots);
+        await delay(900);
+        container.removeChild(dots);
+      }
+      const { row } = makeBubble('bot', turn.final, false);
+      container.appendChild(row);
+      statusEl.textContent = '';
+    }
+    await delay(400);
+  }
+  await delay(2000);
+}
+
+async function loop() {
+  const ca = document.getElementById('chat-a');
+  const cb = document.getElementById('chat-b');
+  const sa = document.getElementById('status-a');
+  const sb = document.getElementById('status-b');
+  while (true) {
+    await Promise.all([runChatA(ca, sa), runChatB(cb, sb)]);
+  }
+}
+
+loop();
+</script>
