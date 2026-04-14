@@ -471,7 +471,15 @@ def _query_graph_structure_sync(driver, booking_ref: str) -> Optional[Dict]:
             "CodeShare Flights": "Revenue Management",
         }
         seen_channels: set = set()
-        for item in record["channels"]:
+        sorted_channels = sorted(
+            record["channels"],
+            key=lambda item: (
+                channel_order.index(item["ch"]["name"])
+                if item["ch"] and item["ch"]["name"] in channel_order
+                else 999
+            ),
+        )
+        for item in sorted_channels:
             ch = item["ch"]
             if ch is None or ch["name"] in seen_channels:
                 continue
@@ -860,6 +868,85 @@ def build_keyword_map(graph: Dict) -> Dict[str, str]:
                 mapping["digital"] = nid
 
     return mapping
+
+
+def build_path_map(graph: Dict) -> Dict[str, Dict]:
+    """Build channel path definitions for sequential graph traversal animation.
+
+    Maps keywords the agent is likely to say when discussing a channel to a
+    ``{steps, color}`` dict consumed by the frontend ``highlightPath`` method.
+    Path keywords take priority over individual ``highlight`` events so the
+    whole channel animates when the agent discusses it broadly.
+
+    Args:
+        graph: Dict with "nodes" and "edges" from query_graph_structure.
+
+    Returns:
+        Dict mapping lowercase keyword/phrase to
+        ``{"steps": [nodeId, ...], "color": "#hex"}``.
+    """
+    if not graph:
+        return {}
+
+    # Colors must match the deployed frontend TYPE_COLORS + channel-key convention
+    CHANNEL_COLORS = {
+        "crm": "#fbbf24",
+        "communications": "#f97316",
+        "baggage-handling": "#10b981",
+        "codeshare-flights": "#8b5cf6",
+    }
+
+    # Keywords that indicate the agent is talking about a whole channel
+    CHANNEL_KEYWORDS: Dict[str, List[str]] = {
+        "crm": [
+            "crm", "salesforce", "customer record", "past booking",
+            "your history", "previous interaction",
+        ],
+        "communications": [
+            "communication", "notification", "notified", "we contacted",
+            "we've contacted", "sent you", "reached out",
+            "accommodation", "hotel", "voucher",
+        ],
+        "baggage-handling": [
+            "baggage", "bag", "bags", "luggage", "suitcase",
+        ],
+        "codeshare-flights": [
+            "codeshare", "alternative flight", "flight options",
+            "rebooking options", "available seats", "rebook you",
+        ],
+    }
+
+    node_map = {n["id"]: n for n in graph["nodes"]}
+
+    customer_id = next(
+        (n["id"] for n in graph["nodes"] if n["type"] == "Customer"), None
+    )
+    if not customer_id:
+        return {}
+
+    # Build channel → ordered list of sub-node IDs from edges
+    channel_children: Dict[str, List[str]] = {}
+    for edge in graph.get("edges", []):
+        src = edge["source"]
+        src_node = node_map.get(src)
+        if src_node and src_node["type"] == "Channel":
+            channel_children.setdefault(src, []).append(edge["target"])
+
+    path_map: Dict[str, Dict] = {}
+
+    for node in graph["nodes"]:
+        if node["type"] != "Channel":
+            continue
+        ch_id = node["id"]
+        ch_key = ch_id.replace("channel-", "")
+        color = CHANNEL_COLORS.get(ch_key, "#64748b")
+        sub_ids = channel_children.get(ch_id, [])
+        path_def = {"steps": [customer_id, ch_id] + sub_ids, "color": color}
+
+        for kw in CHANNEL_KEYWORDS.get(ch_key, []):
+            path_map[kw] = path_def
+
+    return path_map
 
 
 def _query_baggage_context_sync(driver, booking_ref: str) -> Optional[Dict]:

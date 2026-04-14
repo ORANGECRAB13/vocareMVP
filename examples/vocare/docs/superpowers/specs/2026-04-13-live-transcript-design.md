@@ -35,7 +35,7 @@ A new `TranscriptionObserver` class added to `bot.py`, modeled on the existing `
 
 **Queue:** Both event types go into the existing `graph_event_queues[pc_id]`, drained by the existing `/api/graph/poll` endpoint every 250ms. No new endpoints or polling loops.
 
-**Attachment:** `TranscriptionObserver` is instantiated alongside `GraphHighlightObserver` in the pipeline task setup, receiving the same `pc_id` and `event_queue` reference.
+**Attachment:** `TranscriptionObserver` is instantiated alongside `GraphHighlightObserver` and passed to `PipelineTask` via the `observers` parameter, receiving the same `pc_id` and `event_queue` reference.
 
 ## Frontend: HTML & CSS
 
@@ -51,7 +51,7 @@ A `#transcript` section is added to the left panel in `static/index.html`, direc
 
 **Styling:**
 - Container: hidden by default, shown on connect, cleared and hidden on disconnect
-- Messages area: `overflow-y: auto`, `max-height: ~280px`, auto-scrolls to bottom on new message
+- Messages area: `overflow-y: auto`, `max-height: 280px`, auto-scrolls to bottom on new message
 - User bubble: right-aligned, `background: #1d4ed8`, white text, `border-radius: 12px 12px 2px 12px`
 - Bot bubble: left-aligned, `background: #1e293b`, light text (`#e2e8f0`), `border-radius: 12px 12px 12px 2px`
 - Both bubbles: `max-width: 80%`, `padding: 6px 10px`, `line-height: 1.5`

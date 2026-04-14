@@ -309,7 +309,7 @@
       border: 2px solid var(--node-color);
       box-shadow: 0 0 12px var(--node-color-alpha);
       transform: translate3d(var(--x), var(--y), var(--z)) translate(-50%, -50%);
-      transition: transform 0.8s cubic-bezier(0.34, 1.56, 0.64, 1),
+      transition: transform 0.6s cubic-bezier(0.22, 1, 0.36, 1),
                   opacity 0.5s ease,
                   box-shadow 0.3s ease,
                   border-color 0.3s ease;
@@ -599,6 +599,7 @@
     let pcId = null;
     let dataChannel = null;
     let pingInterval = null;
+    let disconnectTimer = null;
     let eventSource = null;
 
     // Mode state
@@ -622,7 +623,13 @@
       graphRenderer.reset();
 
       try {
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        const stream = await navigator.mediaDevices.getUserMedia({
+          audio: {
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true,
+          },
+        });
 
         // Fetch fresh TURN credentials from the backend (Twilio NTS)
         let iceServers = [{ urls: 'stun:stun.l.google.com:19302' }];
@@ -662,14 +669,31 @@
         };
 
         pc.onconnectionstatechange = () => {
-          if (pc.connectionState === 'connected') {
+          const state = pc.connectionState;
+          if (state === 'connected') {
+            // Clear any pending disconnect timer — connection recovered
+            if (disconnectTimer) { clearTimeout(disconnectTimer); disconnectTimer = null; }
             setStatus('Connected', 'connected');
             audioIndicator.classList.add('active');
             disconnectBtn.style.display = 'block';
             document.getElementById('transcript').style.display = 'block';
-          } else if (pc.connectionState === 'disconnected' || pc.connectionState === 'failed') {
+          } else if (state === 'failed') {
+            // 'failed' is permanent — clean up immediately
             cleanup();
             setStatus('Disconnected', 'error');
+          } else if (state === 'disconnected') {
+            // 'disconnected' is transient — ICE is retrying. Give it 5s to recover
+            // before treating it as a real disconnect. Calling cleanup() immediately
+            // here is what caused the AbortChunk teardown mid-TTS.
+            if (!disconnectTimer) {
+              disconnectTimer = setTimeout(() => {
+                disconnectTimer = null;
+                if (pc && pc.connectionState === 'disconnected') {
+                  cleanup();
+                  setStatus('Disconnected', 'error');
+                }
+              }, 5000);
+            }
           }
         };
 
@@ -750,6 +774,10 @@
         graphStatusEl.textContent = 'Context loaded \u2014 agent has full awareness';
       } else if (event.type === 'highlight') {
         graphRenderer.highlightNode(event.nodeId);
+      } else if (event.type === 'path') {
+        graphRenderer.highlightPath(event.steps, event.color);
+      } else if (event.type === 'clear_path') {
+        graphRenderer.clearPath();
       } else if (event.type === 'user_transcription') {
         appendTranscriptBubble('user', event.text);
       } else if (event.type === 'bot_transcription') {
@@ -861,7 +889,12 @@
       document.getElementById('transcript').style.display = 'block';
 
       // Start polling demo events
+      // Guard prevents two in-flight requests from sharing the same cursor value
+      // and processing the same events twice (most visible on large bot transcriptions).
+      let pollInFlight = false;
       const poll = async () => {
+        if (pollInFlight) return;
+        pollInFlight = true;
         try {
           const res = await fetch(`/api/demo/poll?cursor=${viewerCursor}`);
           if (!res.ok) return;
@@ -881,6 +914,8 @@
           }
         } catch (e) {
           console.warn('[DEMO POLL] error', e);
+        } finally {
+          pollInFlight = false;
         }
       };
 
@@ -901,6 +936,7 @@
     // startDemoCheck() is called after graphRenderer is initialized (below)
 
     function cleanup() {
+      if (disconnectTimer) { clearTimeout(disconnectTimer); disconnectTimer = null; }
       if (eventSource) { clearInterval(eventSource); eventSource = null; }
       if (pingInterval) clearInterval(pingInterval);
       pingInterval = null;
@@ -1014,6 +1050,11 @@
         this._highlightGen = 0;
         this._animFrame = null;
         this._edgeAnimations = []; // active edge animations
+
+        // Path traversal state
+        this._activePath = null;     // { steps, color, edgeKeys }
+        this._pathRevealedIds = null; // Set of node IDs revealed so far
+        this._pathTimers = [];        // setTimeout handles
 
         // Parallax state
         this._rotX = 0;
@@ -1262,6 +1303,67 @@
         }, 3000);
       }
 
+      highlightPath(steps, color) {
+        // Cancel any in-progress animation or pending highlight auto-clear
+        this._pathTimers.forEach(clearTimeout);
+        this._pathTimers = [];
+        ++this._highlightGen;
+
+        // Build edge key set for fast lookup
+        const edgeKeys = new Set();
+        for (let i = 0; i < steps.length - 1; i++) {
+          edgeKeys.add(`${steps[i]}::${steps[i + 1]}`);
+        }
+        this._activePath = { steps, color, edgeKeys };
+        this._pathRevealedIds = new Set();
+        const pathSet = new Set(steps);
+
+        // Dim all nodes immediately
+        this.nodes.forEach(n => {
+          n.el.classList.remove('active', 'highlighted', 'dimmed');
+          n.el.classList.add('inactive');
+          n.el.style.opacity = pathSet.has(n.id) ? '0.2' : '0.07';
+          n.el.style.boxShadow = '';
+        });
+        this.edges.forEach(e => { e.highlighted = false; });
+
+        // Reveal each step sequentially at 320ms/step
+        steps.forEach((nodeId, i) => {
+          const t = setTimeout(() => {
+            const node = this.nodeMap[nodeId];
+            if (!node || !this._activePath) return;
+
+            this._pathRevealedIds.add(nodeId);
+            node.el.classList.remove('inactive');
+            node.el.classList.add('active');
+            node.el.style.opacity = '1';
+            node.el.style.boxShadow = `0 0 28px ${color}, 0 0 56px ${color}44`;
+            setTimeout(() => { node.el.style.boxShadow = ''; }, 600);
+          }, i * 320);
+          this._pathTimers.push(t);
+        });
+      }
+
+      clearPath() {
+        this._pathTimers.forEach(clearTimeout);
+        this._pathTimers = [];
+        this._activePath = null;
+        this._pathRevealedIds = null;
+
+        this.nodes.forEach(n => {
+          n.el.classList.remove('highlighted', 'dimmed');
+          n.el.style.opacity = '';
+          n.el.style.boxShadow = '';
+          if (this.activeNodes.has(n.id)) {
+            n.el.classList.remove('inactive');
+            n.el.classList.add('active');
+          } else {
+            n.el.classList.remove('active');
+            n.el.classList.add('inactive');
+          }
+        });
+      }
+
       _renderLoop() {
         this._updateRotation();
         this._drawEdges();
@@ -1294,6 +1396,7 @@
         if (this.edges.length === 0) return;
 
         const anyHighlighted = this.nodes.some(n => n.el.classList.contains('highlighted'));
+        const inPathMode = this._activePath !== null;
 
         this.edges.forEach(edge => {
           // Get projected screen positions from node divs
@@ -1317,6 +1420,34 @@
           const curveOffset = len * 0.15; // 15% of line length
           const cpx = mx + perpX * curveOffset;
           const cpy = my + perpY * curveOffset;
+
+          // Path mode overrides all normal edge rendering
+          if (inPathMode) {
+            const ek  = `${edge.source.id}::${edge.target.id}`;
+            const ekR = `${edge.target.id}::${edge.source.id}`;
+            const isPathEdge = this._activePath.edgeKeys.has(ek) || this._activePath.edgeKeys.has(ekR);
+            const bothRevealed = this._pathRevealedIds &&
+              this._pathRevealedIds.has(edge.source.id) && this._pathRevealedIds.has(edge.target.id);
+
+            ctx.save();
+            if (isPathEdge && bothRevealed) {
+              ctx.strokeStyle = this._activePath.color;
+              ctx.lineWidth   = 2.5;
+              ctx.shadowColor = this._activePath.color;
+              ctx.shadowBlur  = 14;
+              ctx.globalAlpha = 0.85;
+            } else {
+              ctx.strokeStyle = '#1a1a1a';
+              ctx.lineWidth   = 0.8;
+              ctx.globalAlpha = 0.04;
+            }
+            ctx.beginPath();
+            ctx.moveTo(sx, sy);
+            ctx.quadraticCurveTo(cpx, cpy, tx, ty);
+            ctx.stroke();
+            ctx.restore();
+            return; // skip normal edge rendering
+          }
 
           // Depth-based line width and opacity
           const srcZ = edge.source.z;

@@ -134,6 +134,7 @@ for _name in ("aioice", "aiortc"):
 from pipecat.adapters.schemas.function_schema import FunctionSchema
 from pipecat.adapters.schemas.tools_schema import ToolsSchema
 from pipecat.audio.vad.silero import SileroVADAnalyzer
+from pipecat.audio.vad.vad_analyzer import VADParams
 from pipecat.frames.frames import (
     LLMFullResponseEndFrame,
     LLMRunFrame,
@@ -149,6 +150,9 @@ from pipecat.processors.aggregators.llm_context import LLMContext
 from pipecat.processors.aggregators.llm_response_universal import (
     LLMContextAggregatorPair,
     LLMUserAggregatorParams,
+)
+from pipecat.turns.user_mute.mute_until_first_bot_complete_user_mute_strategy import (
+    MuteUntilFirstBotCompleteUserMuteStrategy,
 )
 from pipecat.processors.frame_processor import FrameDirection
 from pipecat.services.llm_service import LLMService
@@ -171,8 +175,7 @@ SYSTEM_INSTRUCTION_KG = (
     "Your name is Aria. Speak naturally, warmly, and briefly — one or two "
     "sentences at a time. "
 
-    # --- Phase 1: Identity Collection ---
-    "Start by asking for their name and flight number. "
+    "Then ask for their name and flight number. "
     "Do not ask for a booking reference — passengers calling about cancellations "
     "rarely have it. "
 
@@ -196,7 +199,7 @@ SYSTEM_INSTRUCTION_KG = (
     "If the passenger asks about their bags, call the lookup_baggage tool. "
     "Report the exact location — name the terminal, the carousel, and that the "
     "bag will automatically load onto the rescheduled flight. "
-    "Be specific — use the detail from the data, not generic phrases. "
+    "Be specific — use the detail from the data, not generic phrases. However, make sure to assure the passenger that their bags will be taken care of. "
 
     # --- Phase 6: Accommodation ---
     "If the passenger asks about tonight or where to sleep, tell them: "
@@ -431,15 +434,24 @@ class GraphHighlightObserver(BaseObserver):
         super().__init__()
         self._keyword_map: Dict[str, str] = {}
         self._sorted_keywords: list = []
+        self._path_map: Dict[str, Dict] = {}
+        self._sorted_path_keywords: list = []
         self._event_queue = event_queue
         self._buffer = ""
         self._last_highlight = ""
         self._last_highlight_time = 0.0
+        self._last_path_key = ""
+        self._last_path_time = 0.0
 
     def set_keyword_map(self, keyword_map: Dict[str, str]):
         """Update the keyword map once the graph structure is available."""
         self._keyword_map = keyword_map
         self._sorted_keywords = sorted(keyword_map.keys(), key=len, reverse=True)
+
+    def set_path_map(self, path_map: Dict[str, Dict]):
+        """Update channel path definitions for traversal animation."""
+        self._path_map = path_map
+        self._sorted_path_keywords = sorted(path_map.keys(), key=len, reverse=True)
 
     async def on_push_frame(self, data: FramePushed):
         if (
@@ -456,10 +468,35 @@ class GraphHighlightObserver(BaseObserver):
             return
 
         buf_lower = self._buffer.lower()
+        now = asyncio.get_event_loop().time()
+
+        # 1. Path keywords take priority — trigger full channel traversal animation
+        for keyword in self._sorted_path_keywords:
+            if keyword in buf_lower:
+                path_def = self._path_map[keyword]
+                path_key = path_def["steps"][1] if len(path_def["steps"]) > 1 else keyword
+                # Debounce: same channel path suppressed for 6 seconds
+                if path_key != self._last_path_key or (now - self._last_path_time) > 6.0:
+                    self._last_path_key = path_key
+                    self._last_path_time = now
+                    event = {
+                        "type": "path",
+                        "steps": path_def["steps"],
+                        "color": path_def["color"],
+                    }
+                    try:
+                        self._event_queue.put_nowait(event)
+                    except asyncio.QueueFull:
+                        pass
+                    if demo_pc_id is not None:
+                        demo_events.append(event)
+                self._buffer = self._buffer[-10:]
+                return
+
+        # 2. Fall back to individual node highlight
         for keyword in self._sorted_keywords:
             if keyword in buf_lower:
                 node_id = self._keyword_map[keyword]
-                now = asyncio.get_event_loop().time()
                 # Debounce: don't re-highlight the same node within 2 seconds
                 if node_id != self._last_highlight or (now - self._last_highlight_time) > 2.0:
                     self._last_highlight = node_id
@@ -564,6 +601,7 @@ async def run_bot(
         """Shared helper: query Neo4j, send graph to frontend, return context."""
         from knowledge_graph import (
             build_keyword_map,
+            build_path_map,
             build_traversal_sequence,
             query_customer_context,
             query_graph_structure,
@@ -589,8 +627,13 @@ async def run_bot(
 
             if highlight_observer:
                 kw_map = build_keyword_map(graph_structure)
+                path_map = build_path_map(graph_structure)
                 highlight_observer.set_keyword_map(kw_map)
-                logger.info(f"Graph highlight observer: {len(kw_map)} keywords mapped")
+                highlight_observer.set_path_map(path_map)
+                logger.info(
+                    f"Graph highlight observer: {len(kw_map)} keywords, "
+                    f"{len(path_map)} path keywords mapped"
+                )
 
         return kg_context or ""
 
@@ -757,7 +800,15 @@ async def run_bot(
     context = LLMContext(tools=tools)
     user_aggregator, assistant_aggregator = LLMContextAggregatorPair(
         context,
-        user_params=LLMUserAggregatorParams(vad_analyzer=SileroVADAnalyzer()),
+        user_params=LLMUserAggregatorParams(
+            vad_analyzer=SileroVADAnalyzer(
+                params=VADParams(
+                    start_secs=0.3,
+                    stop_secs=0.2,
+                )
+            ),
+            user_mute_strategies=[MuteUntilFirstBotCompleteUserMuteStrategy()],
+        ),
     )
 
     pipeline = Pipeline(

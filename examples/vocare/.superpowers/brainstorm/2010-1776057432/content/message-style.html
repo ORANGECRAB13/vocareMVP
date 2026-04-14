@@ -1,0 +1,80 @@
+<h2>How should messages look?</h2>
+<p class="subtitle">Three visual styles for displaying the conversation — same information, different feel.</p>
+
+<div class="cards">
+
+  <div class="card" data-choice="a" onclick="toggleSelect(this)">
+    <div class="card-image" style="background:#0d1117;padding:12px;min-height:140px;display:flex;flex-direction:column;gap:6px;font-family:system-ui,sans-serif;font-size:11px;">
+      <div style="color:#666;font-size:9px;text-transform:uppercase;letter-spacing:1px;margin-bottom:2px;">Live Transcript</div>
+      <!-- User message right-aligned -->
+      <div style="display:flex;justify-content:flex-end;">
+        <div style="background:#1d4ed8;color:#fff;border-radius:12px 12px 2px 12px;padding:6px 10px;max-width:75%;line-height:1.4;">
+          What flights do I have booked?
+        </div>
+      </div>
+      <!-- Bot message left-aligned -->
+      <div style="display:flex;justify-content:flex-start;">
+        <div style="background:#1e293b;color:#e2e8f0;border-radius:12px 12px 12px 2px;padding:6px 10px;max-width:75%;line-height:1.4;">
+          You have a flight to London on Friday at 8am.
+        </div>
+      </div>
+      <!-- User typing indicator -->
+      <div style="display:flex;justify-content:flex-end;">
+        <div style="background:#1e3a6e;color:#93bbff;border-radius:12px 12px 2px 12px;padding:6px 10px;max-width:75%;line-height:1.4;font-style:italic;opacity:0.7;">
+          And do I have any meetings...
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>A — Chat Bubbles</h3>
+      <p>User right, bot left. Familiar messaging UI. Clear separation, polished feel.</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="b" onclick="toggleSelect(this)">
+    <div class="card-image" style="background:#0d1117;padding:12px;min-height:140px;display:flex;flex-direction:column;gap:4px;font-family:system-ui,sans-serif;font-size:11px;">
+      <div style="color:#666;font-size:9px;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">Live Transcript</div>
+      <div style="display:flex;gap:6px;align-items:baseline;">
+        <span style="color:#4a9eff;font-size:9px;font-weight:600;min-width:28px;">You</span>
+        <span style="color:#cbd5e1;line-height:1.5;">What flights do I have booked?</span>
+      </div>
+      <div style="display:flex;gap:6px;align-items:baseline;">
+        <span style="color:#a78bfa;font-size:9px;font-weight:600;min-width:28px;">Bot</span>
+        <span style="color:#94a3b8;line-height:1.5;">You have a flight to London on Friday at 8am.</span>
+      </div>
+      <div style="display:flex;gap:6px;align-items:baseline;">
+        <span style="color:#4a9eff;font-size:9px;font-weight:600;min-width:28px;">You</span>
+        <span style="color:#cbd5e1;line-height:1.5;">And do I have any meetings that day?</span>
+      </div>
+      <div style="display:flex;gap:6px;align-items:baseline;">
+        <span style="color:#a78bfa;font-size:9px;font-weight:600;min-width:28px;">Bot</span>
+        <span style="color:#64748b;font-style:italic;line-height:1.5;">Yes, you have a 2pm standup...</span>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>B — Labeled Lines</h3>
+      <p>Color-coded speaker labels with flowing text. Dense, fits more content. Minimal and clean.</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="c" onclick="toggleSelect(this)">
+    <div class="card-image" style="background:#0d1117;padding:12px;min-height:140px;display:flex;flex-direction:column;justify-content:flex-end;font-family:system-ui,sans-serif;font-size:11px;gap:5px;">
+      <div style="color:#666;font-size:9px;text-transform:uppercase;letter-spacing:1px;position:absolute;top:12px;left:12px;">Live Transcript</div>
+      <div style="color:#64748b;font-size:10px;text-align:center;padding:8px 0;color:#333;">— earlier —</div>
+      <div style="border-left:2px solid #1d4ed8;padding-left:8px;color:#93c5fd;line-height:1.5;">
+        What flights do I have booked?
+      </div>
+      <div style="border-left:2px solid #7c3aed;padding-left:8px;color:#c4b5fd;line-height:1.5;">
+        You have a flight to London on Friday at 8am.
+      </div>
+      <div style="border-left:2px solid #1d4ed8;padding-left:8px;color:#93c5fd;line-height:1.5;opacity:0.6;font-style:italic;">
+        And do I have any meetings that day?
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>C — Colored Sidebar</h3>
+      <p>Left accent bar identifies the speaker by color. No labels, just color. Minimal but distinctive.</p>
+    </div>
+  </div>
+
+</div>
