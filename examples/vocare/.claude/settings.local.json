@@ -6,7 +6,8 @@
       "Bash(cd /d/vocare/v2/pipecat && python -c \"\nwith open\\('examples/vocare/knowledge_graph.py', 'r', encoding='utf-8'\\) as f:\n    lines = f.readlines\\(\\)\n\nviolations = []\nfor i, line in enumerate\\(lines, 1\\):\n    stripped = line.rstrip\\('\\\\n'\\)\n    if len\\(stripped\\) > 100:\n        violations.append\\(\\(i, len\\(stripped\\), stripped\\)\\)\n\nprint\\(f'Total lines over 100 chars: {len\\(violations\\)}'\\)\nfor lineno, length, content in violations:\n    print\\(f'  Line {lineno} \\({length} chars\\): {repr\\(content[:130]\\)}'\\)\n\")",
       "Bash(git -C D:/vocare/v2/pipecat show feature/qantas-context-graph:examples/vocare/knowledge_graph.py)",
       "Bash(git -C D:/vocare/v2/pipecat show feature/qantas-context-graph:examples/vocare/static/index.html | sed -n '1059,1063p')",
-      "Bash(cd \"D:/vocare/v2/pipecat/examples/vocare\" && python -c \"\nfrom html.parser import HTMLParser\nclass V\\(HTMLParser\\): pass\nV\\(\\).feed\\(open\\('static/index.html'\\).read\\(\\)\\)\nprint\\('HTML OK'\\)\n\" && python -c \"import ast; ast.parse\\(open\\('bot.py'\\).read\\(\\)\\); print\\('bot.py OK'\\)\")"
+      "Bash(cd \"D:/vocare/v2/pipecat/examples/vocare\" && python -c \"\nfrom html.parser import HTMLParser\nclass V\\(HTMLParser\\): pass\nV\\(\\).feed\\(open\\('static/index.html'\\).read\\(\\)\\)\nprint\\('HTML OK'\\)\n\" && python -c \"import ast; ast.parse\\(open\\('bot.py'\\).read\\(\\)\\); print\\('bot.py OK'\\)\")",
+      "WebFetch(domain:api.anthropic.com)"
     ]
   }
 }
