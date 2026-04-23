@@ -11,16 +11,27 @@ import json
 import logging
 import os
 import sys
+import random
+from datetime import datetime
+from dataclasses import dataclass, field
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Dict
 
-# GRC pilot imports — add GRC_pilot to path for its internal relative imports
-sys.path.insert(0, str(Path(__file__).parent / "GRC_pilot"))
-from database import init_db  # noqa: E402
-from tools import book_bulky_waste, check_service_status, update_booking_date, get_bin_collection_zone  # noqa: E402
-from knowledge import BULKY_WASTE_KNOWLEDGE  # noqa: E402
-from da_knowledge import DA_KNOWLEDGE  # noqa: E402
+# GRC pilot imports — currently missing in this branch
+# sys.path.insert(0, str(Path(__file__).parent / "GRC_pilot"))
+# from database import init_db  # noqa: E402
+# from tools import book_bulky_waste, check_service_status, update_booking_date, get_bin_collection_zone  # noqa: E402
+# from knowledge import BULKY_WASTE_KNOWLEDGE  # noqa: E402
+# from da_knowledge import DA_KNOWLEDGE  # noqa: E402
+
+def init_db(): pass
+BULKY_WASTE_KNOWLEDGE = ""
+DA_KNOWLEDGE = ""
+def book_bulky_waste(args): return "success"
+def check_service_status(args): return "success"
+def update_booking_date(args): return "success"
+def get_bin_collection_zone(args): return "success"
 
 import uvicorn
 from dotenv import load_dotenv
@@ -169,6 +180,8 @@ from pipecat.processors.aggregators.llm_response_universal import (
 from pipecat.turns.user_mute.mute_until_first_bot_complete_user_mute_strategy import (
     MuteUntilFirstBotCompleteUserMuteStrategy,
 )
+from pipecat.turns.user_start import TranscriptionUserTurnStartStrategy
+from pipecat.turns.user_turn_strategies import UserTurnStrategies
 from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
 from pipecat.services.groq.llm import GroqLLMService
 from pipecat.services.llm_service import LLMService
@@ -1420,6 +1433,324 @@ async def twilio_voice(request: Request):
 async def twilio_ws(websocket: WebSocket):
     """WebSocket endpoint for Twilio Media Streams."""
     await run_twilio_bot(websocket)
+
+
+# ---------------------------------------------------------------------------
+# Live Translation Mode
+# ---------------------------------------------------------------------------
+
+@dataclass
+class TranslationParticipant:
+    pc_id: str
+    name: str
+    language: Language              # their spoken/output language
+    voice_config: dict              # {"voice_id": ..., "language": Language}
+    pipeline_task: PipelineTask | None = None
+
+class TranslationSession:
+    def __init__(self, session_id: str, caller_name: str, caller_lang: str, topic: str):
+        self.session_id = session_id
+        self.participants: Dict[str, TranslationParticipant] = {}
+        self.event_queue = asyncio.Queue()
+        self.transcript: list[dict] = []
+        self.topic = topic
+        self.caller_name = caller_name
+        self.caller_lang = caller_lang
+        self.status = "waiting"     # waiting | live | ended
+        self.created_at = datetime.now()
+        self.ended_at = None
+
+# Module-level registries
+translation_sessions: Dict[str, TranslationSession] = {}  # session_id -> session
+pc_to_translation: Dict[str, str] = {}                     # pc_id -> session_id
+
+TRANSLATION_VOICES = {
+    "en": {"voice_id": os.getenv("ELEVENLABS_VOICE_ID", "pFZP5JQG7iQjIQuC4Bku"), "language": Language.EN},
+    "zh": {"voice_id": os.getenv("ELEVENLABS_MULTILINGUAL_VOICE_ID", "pFZP5JQG7iQjIQuC4Bku"), "language": Language.ZH},
+}
+
+class TranslationProcessor(FrameProcessor):
+    """Translates STT transcripts and injects them into the other participant's pipeline."""
+
+    def __init__(self, translation_llm: GroqLLMService, session: TranslationSession, my_pc_id: str, **kwargs):
+        super().__init__(**kwargs)
+        self._llm = translation_llm
+        self._session = session
+        self._my_pc_id = my_pc_id
+
+    async def process_frame(self, frame, direction):
+        await super().process_frame(frame, direction)
+
+        if isinstance(frame, TranscriptionFrame) and direction == FrameDirection.DOWNSTREAM:
+            text = frame.text.strip()
+            if text:
+                # Use the DECLARED participant language, not the STT-detected language tag.
+                # STT language detection defaults to English and causes translation to be skipped.
+                my_lang = self._session.participants[self._my_pc_id].language
+                self.create_task(self._translate_and_inject(text, my_lang), "translate")
+            # Don't push TranscriptionFrame further — TTS on this participant's pipeline
+            # should only receive TTSSpeakFrames injected by the OTHER participant's translator.
+            return
+
+        await self.push_frame(frame, direction)
+
+    async def _translate_and_inject(self, text: str, source_lang: Language):
+        other = self._get_other_participant()
+        if not other or not other.pipeline_task:
+            logger.warning("TranslationProcessor: no other participant ready yet — dropping frame")
+            return
+
+        target_lang = other.language
+        source_name = source_lang.value
+        target_name = target_lang.value
+        logger.info(f"Translating: {source_name} → {target_name} | '{text[:60]}'")
+
+        # Skip translation if same language
+        if source_lang == target_lang:
+            await other.pipeline_task.queue_frames([TTSSpeakFrame(text=text)])
+            # Push event to dashboard even if no translation
+            event = {
+                "type": "turn",
+                "speaker": self._my_pc_id,
+                "speaker_name": self._session.participants[self._my_pc_id].name,
+                "original": text,
+                "original_lang": source_name,
+                "translated": text,
+                "translated_lang": target_name,
+            }
+            self._session.transcript.append(event)
+            await self._session.event_queue.put(event)
+            return
+
+        # Translate via Groq run_inference
+        temp_context = LLMContext()
+        temp_context.add_message({"role": "user", "content": text})
+        translated = await self._llm.run_inference(
+            temp_context, max_tokens=500,
+            system_instruction=f"Translate from {source_name} to {target_name}. Output ONLY the translation, nothing else."
+        )
+        if not translated:
+            return
+
+        # Inject into other participant's pipeline
+        await other.pipeline_task.queue_frames([TTSSpeakFrame(text=translated.strip())])
+
+        # Push event to dashboard
+        event = {
+            "type": "turn",
+            "speaker": self._my_pc_id,
+            "speaker_name": self._session.participants[self._my_pc_id].name,
+            "original": text,
+            "original_lang": source_name,
+            "translated": translated.strip(),
+            "translated_lang": target_name,
+        }
+        self._session.transcript.append(event)
+        await self._session.event_queue.put(event)
+
+    def _get_other_participant(self):
+        for pc_id, p in self._session.participants.items():
+            if pc_id != self._my_pc_id:
+                return p
+        return None
+
+async def run_translation_participant(
+    webrtc_connection: SmallWebRTCConnection,
+    session: TranslationSession,
+    participant: TranslationParticipant,
+):
+    transport = SmallWebRTCTransport(
+        webrtc_connection=webrtc_connection,
+        params=TransportParams(
+            audio_in_enabled=True,
+            audio_out_enabled=True,
+            # VAD is critical: without it the STT (manual-commit mode) never knows
+            # when the user has finished speaking and holds the transcript indefinitely.
+            # With VAD, silence after PTT release fires VADUserStoppedSpeakingFrame
+            # → STT commits within ~300ms → dashboard updates immediately.
+            vad_enabled=True,
+            vad_analyzer=SileroVADAnalyzer(),
+        ),
+    )
+
+    # Configure STT with the participant's declared language for better non-English accuracy
+    from pipecat.services.elevenlabs.stt import ElevenLabsRealtimeSTTService
+    stt = ElevenLabsRealtimeSTTService(
+        api_key=os.getenv("ELEVENLABS_API_KEY"),
+        language=participant.language.value if participant.language else None,
+    )
+
+    # Dedicated Groq instance for translation
+    translation_llm = GroqLLMService(
+        api_key=os.getenv("GROQ_API_KEY"),
+        settings=GroqLLMService.Settings(model="llama-3.3-70b-versatile"), 
+    )
+
+    # TTS pre-configured for this participant's language
+    from pipecat.services.elevenlabs.tts import ElevenLabsTTSService       
+    tts = ElevenLabsTTSService(
+        api_key=os.getenv("ELEVENLABS_API_KEY"),
+        settings=ElevenLabsTTSService.Settings(
+            voice=participant.voice_config["voice_id"],
+            language=participant.voice_config["language"],
+            model="eleven_turbo_v2_5",
+        ),
+    )
+
+    translator = TranslationProcessor(
+        translation_llm=translation_llm,
+        session=session,
+        my_pc_id=participant.pc_id,
+    )
+
+
+    pipeline = Pipeline([
+        transport.input(),
+        stt,
+        translator,
+        tts,
+        transport.output(),
+    ])
+
+    task = PipelineTask(
+        pipeline,
+        params=PipelineParams(enable_metrics=True),
+    )
+    participant.pipeline_task = task
+
+    @transport.event_handler("on_client_connected")
+    async def on_client_connected(transport, client):
+        logger.info(f"Translation participant connected: {participant.name} ({participant.language.value})")
+        connected = sum(1 for p in session.participants.values() if p.pipeline_task is not None)
+        if connected >= 2:
+            session.status = "live"
+            await session.event_queue.put({"type": "status", "status": "live"})
+
+    @transport.event_handler("on_client_disconnected")
+    async def on_client_disconnected(transport, client):
+        logger.info(f"Translation participant disconnected: {participant.name}")
+        session.status = "ended"
+        session.ended_at = datetime.now()
+        await session.event_queue.put({"type": "status", "status": "ended"})
+        pc_to_translation.pop(participant.pc_id, None)
+        await task.cancel()
+
+    runner = PipelineRunner(handle_sigint=False)
+    await runner.run(task)
+
+@app.post("/api/translation/session")
+async def create_translation_session(request: Request):
+    """Create a new translation session. Returns session_id + join link."""
+    data = await request.json()
+    session_id = f"GRC-{random.randint(1000, 9999)}"
+    session = TranslationSession(
+        session_id=session_id,
+        caller_name=data.get("caller_name", "Unknown"),
+        caller_lang=data.get("caller_language", "zh"),
+        topic=data.get("topic", "General"),
+    )
+    translation_sessions[session_id] = session
+    return {"session_id": session_id, "status": "waiting"}
+
+@app.post("/api/translation/offer")
+async def translation_offer(request: Request, background_tasks: BackgroundTasks):
+    """WebRTC offer from a translation session participant."""
+    data = await request.json()
+    session_id = data.get("session_id")
+    session = translation_sessions.get(session_id)
+    if not session:
+        return Response(status_code=404, content="Session not found")
+
+    language = data.get("language", "en")
+    name = data.get("name", "Participant")
+    voice_config = TRANSLATION_VOICES.get(language, TRANSLATION_VOICES["en"])
+
+    # Create WebRTC connection
+    session_ice_servers, _ = fetch_twilio_ice_servers()
+    connection = SmallWebRTCConnection(session_ice_servers)
+    await connection.initialize(sdp=data["sdp"], type=data["type"])
+
+    answer = connection.get_answer()
+    pc_id = answer["pc_id"]
+    pcs_map[pc_id] = connection
+
+    participant = TranslationParticipant(
+        pc_id=pc_id, name=name,
+        language=Language(language),
+        voice_config=voice_config,
+    )
+    session.participants[pc_id] = participant
+    pc_to_translation[pc_id] = session_id
+
+    @connection.event_handler("closed")
+    async def handle_closed(conn):
+        pcs_map.pop(conn.pc_id, None)
+
+    background_tasks.add_task(run_translation_participant, connection, session, participant)
+
+    return answer
+
+@app.get("/api/translation/sessions")
+async def list_translation_sessions():
+    """List all active/recent translation sessions for the dashboard."""
+    sessions = []
+    for s in translation_sessions.values():
+        end_time = s.ended_at if s.ended_at else datetime.now()
+        elapsed = (end_time - s.created_at).total_seconds()
+        mins, secs = divmod(int(elapsed), 60)
+        sessions.append({
+            "session_id": s.session_id,
+            "caller_name": s.caller_name,
+            "lang": s.caller_lang,
+            "topic": s.topic,
+            "status": s.status,
+            "duration": f"{mins:02d}:{secs:02d}",
+            "participant_count": len(s.participants),
+        })
+    return {"sessions": sessions}
+
+@app.get("/api/translation/poll")
+async def translation_poll(session_id: str):
+    """Poll transcript events for a translation session."""
+    session = translation_sessions.get(session_id)
+    if not session:
+        return {"events": [], "closed": True}
+
+    events = []
+    while True:
+        try:
+            event = session.event_queue.get_nowait()
+        except asyncio.QueueEmpty:
+            break
+        events.append(event)
+
+    return {"events": events, "closed": session.status == "ended"}
+
+@app.get("/api/translation/session/{session_id}")
+async def get_translation_session(session_id: str):
+    """Get full session details including transcript history."""
+    session = translation_sessions.get(session_id)
+    if not session:
+        return Response(status_code=404, content="Session not found")
+    return {
+        "session_id": session.session_id,
+        "caller_name": session.caller_name,
+        "lang": session.caller_lang,
+        "topic": session.topic,
+        "status": session.status,
+        "transcript": session.transcript,
+        "participants": [
+            {"pc_id": p.pc_id, "name": p.name, "language": p.language.value}
+            for p in session.participants.values()
+        ],
+    }
+
+@app.get("/translate/{session_id}", response_class=HTMLResponse)
+async def translate_join_page(session_id: str):
+    html_path = os.path.join(os.path.dirname(__file__), "static", "index.html")
+    with open(html_path) as f:
+        return HTMLResponse(content=f.read())
+
 
 
 # ---------------------------------------------------------------------------

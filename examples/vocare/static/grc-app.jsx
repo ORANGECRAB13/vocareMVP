@@ -26,6 +26,7 @@ function App() {
       case 'live-calls': return <LiveCallsPage onTakeover={() => {}} />;
       case 'agents':     return <AgentsPage />;
       case 'history':    return <HistoryPage />;
+      case 'translation':return <TranslationPage />;
       default:           return <GRCDashboard onNavigate={navigate} />;
     }
   };
@@ -43,4 +44,10 @@ function App() {
   );
 }
 
-ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+const path = window.location.pathname;
+if (path.startsWith('/translate/')) {
+  const sessionId = path.split('/')[2];
+  ReactDOM.createRoot(document.getElementById('root')).render(<TranslateJoinPage sessionId={sessionId} />);
+} else {
+  ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+}

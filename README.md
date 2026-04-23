@@ -98,6 +98,25 @@ When `NEO4J_URI` is set, the bot loads as a **Qantas customer service agent**. I
 
 Demo booking reference: **QF-8842**
 
+## Live Translation (Georges River Council)
+
+The Live Translation feature is integrated directly into the main bot server — no separate stack needed.
+
+To run locally:
+
+1. **Start the server** from the repo root:
+   ```bash
+   uv run uvicorn examples.vocare.bot:app --host 0.0.0.0 --port 8000 --reload
+   ```
+   Or from `examples/vocare/`:
+   ```bash
+   uv run uvicorn bot:app --host 0.0.0.0 --port 8000 --reload
+   ```
+
+2. **Open the dashboard:** `http://localhost:8000` — navigate to the **Translation** tab in the sidebar.
+
+3. **Create a session**, then share the generated Join Link (e.g. `/translate/GRC-1234`) with each participant. Each participant opens their own browser tab, selects their language, and holds **Hold to Speak** to transmit audio.
+
 ## Project structure
 
 ```

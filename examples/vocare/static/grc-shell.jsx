@@ -7,6 +7,7 @@ const NAV = [
   { id: 'live-calls', icon: 'headset_mic',     label: 'Live Calls',  badge: true },
   { id: 'agents',     icon: 'smart_toy',       label: 'AI Agents' },
   { id: 'history',    icon: 'history',         label: 'History' },
+  { id: 'translation', icon: 'g_translate',    label: 'Live Translation' },
 ];
 
 function Sidebar({ activePage, onNavigate, style = 'light' }) {
@@ -153,6 +154,7 @@ function Header({ activePage }) {
     'live-calls': 'Live Calls Monitor',
     'agents': 'AI Agent Profiles',
     'history': 'History & Insights',
+    'translation': 'Live Translation',
   };
 
   return (
