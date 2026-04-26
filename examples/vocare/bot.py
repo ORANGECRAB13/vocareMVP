@@ -10,6 +10,7 @@ import asyncio
 import json
 import logging
 import os
+import re
 import sys
 import random
 from datetime import datetime
@@ -156,6 +157,7 @@ from pipecat.audio.vad.silero import SileroVADAnalyzer
 from pipecat.frames.frames import (
     Frame,
     FunctionCallInProgressFrame,
+    OutputAudioRawFrame,
     InterimTranscriptionFrame,
     LLMContextFrame,
     LLMFullResponseEndFrame,
@@ -518,6 +520,65 @@ graph_event_queues: Dict[str, asyncio.Queue] = {}
 # Demo mode shared state
 demo_events: list[dict] = []      # append-only list of graph events (fan-out to multiple viewers)
 demo_pc_id: str | None = None     # presenter's pc_id (None = no active demo)
+
+def _filter_relay_sdp(answer: dict) -> dict:
+    """Strip non-relay ICE candidates from a WebRTC answer SDP.
+
+    Required for remote/Cloudflare connections: the browser can't reach the
+    bot's private host/srflx addresses, so only relay↔relay pairs work.
+    Mirrors the filtering applied in /api/offer.
+    """
+    filtered, kept, dropped = [], 0, 0
+    for line in answer["sdp"].split("\r\n"):
+        s = line.strip()
+        if s.startswith("a=candidate:") or s.startswith("candidate:"):
+            if "typ relay" in s:
+                filtered.append(line)
+                kept += 1
+            elif source_lang == self._lang_a:
+                src_name, tgt_name = a_name, b_name
+                system_instruction = (
+                    f"Translate the following {src_name} text into {tgt_name}. "
+                    "Output ONLY the translation. No explanations, no labels, no original text. "
+                    "If the input is filler sounds only (e.g. 'um', 'uh', 'å—¯', 'å•Š'), output nothing."
+                )
+            elif source_lang == self._lang_a:
+                src_name, tgt_name = a_name, b_name
+                system_instruction = (
+                    f"Translate the following {src_name} text into {tgt_name}. "
+                    "Output ONLY the translation. No explanations, no labels, no original text. "
+                    "If the input is filler sounds only (e.g. 'um', 'uh', 'å—¯', 'å•Š'), output nothing."
+                )
+            else:
+                dropped += 1
+            continue
+        filtered.append(line)
+    answer["sdp"] = "\r\n".join(filtered)
+    logger.info(f"SDP relay-filter: kept {kept} relay, dropped {dropped} non-relay candidate(s)")
+    if kept == 0:
+        logger.error("No relay candidates in answer SDP — TURN allocation may have failed")
+    return answer
+
+
+def _filter_relay_sdp(answer: dict) -> dict:
+    """Strip non-relay ICE candidates from a WebRTC answer SDP."""
+    filtered, kept, dropped = [], 0, 0
+    for line in answer["sdp"].split("\r\n"):
+        s = line.strip()
+        if s.startswith("a=candidate:") or s.startswith("candidate:"):
+            if "typ relay" in s:
+                filtered.append(line)
+                kept += 1
+            else:
+                dropped += 1
+            continue
+        filtered.append(line)
+    answer["sdp"] = "\r\n".join(filtered)
+    logger.info(f"SDP relay-filter: kept {kept} relay, dropped {dropped} non-relay candidate(s)")
+    if kept == 0:
+        logger.error("No relay candidates in answer SDP - TURN allocation may have failed")
+    return answer
+
 
 def fetch_twilio_ice_servers():
     """Fetch fresh TURN credentials from Twilio Network Traversal Service.
@@ -1453,6 +1514,8 @@ class TranslationSession:
         self.participants: Dict[str, TranslationParticipant] = {}
         self.event_queue = asyncio.Queue()
         self.transcript: list[dict] = []
+        self.live_transcripts: dict[str, dict] = {}
+        self.live_previews: dict[str, dict] = {}
         self.topic = topic
         self.caller_name = caller_name
         self.caller_lang = caller_lang
@@ -1465,9 +1528,39 @@ translation_sessions: Dict[str, TranslationSession] = {}  # session_id -> sessio
 pc_to_translation: Dict[str, str] = {}                     # pc_id -> session_id
 
 TRANSLATION_VOICES = {
-    "en": {"voice_id": os.getenv("ELEVENLABS_VOICE_ID", "pFZP5JQG7iQjIQuC4Bku"), "language": Language.EN},
-    "zh": {"voice_id": os.getenv("ELEVENLABS_MULTILINGUAL_VOICE_ID", "pFZP5JQG7iQjIQuC4Bku"), "language": Language.ZH},
+    "en": {"voice_id": os.getenv("ELEVENLABS_VOICE_ID", ""), "language": Language.EN},
+    "zh": {"voice_id": os.getenv("ELEVENLABS_VOICE_ID", os.getenv("ELEVENLABS_VOICE_ID", "")), "language": Language.ZH},
 }
+
+class AudioProbeProcessor(FrameProcessor):
+    """Debug: logs first audio frame out of TTS to confirm TTS is generating audio."""
+
+    def __init__(self, label: str, **kwargs):
+        super().__init__(**kwargs)
+        self._label = label
+        self._logged = False
+
+    async def process_frame(self, frame, direction):
+        await super().process_frame(frame, direction)
+        if isinstance(frame, OutputAudioRawFrame) and not self._logged:
+            self._logged = True
+            logger.info(f"[AudioProbe:{self._label}] First audio frame from TTS — {len(frame.audio)} bytes, {frame.sample_rate}Hz")
+        await self.push_frame(frame, direction)
+
+
+import re as _re
+
+_FILLER_PATTERN = _re.compile(
+    r"^[\s,\.]*"
+    r"(u+h+|u+m+|a+h+|h+m+|h+u+h+|o+h+|e+r+|嗯+|啊+|哦+|呃+)"
+    r"[\s,\.]*$",
+    _re.IGNORECASE,
+)
+
+def _is_filler_only(text: str) -> bool:
+    """Return True when the transcript is nothing but filler/hesitation sounds."""
+    return bool(_FILLER_PATTERN.match(text.strip()))
+
 
 class TranslationProcessor(FrameProcessor):
     """Translates STT transcripts and injects them into the other participant's pipeline."""
@@ -1481,72 +1574,118 @@ class TranslationProcessor(FrameProcessor):
     async def process_frame(self, frame, direction):
         await super().process_frame(frame, direction)
 
+        if isinstance(frame, InterimTranscriptionFrame) and direction == FrameDirection.DOWNSTREAM:
+            text = frame.text.strip()
+            if text and not _is_filler_only(text):
+                source_lang = self._session.participants[self._my_pc_id].language
+                speaker_name = self._session.participants[self._my_pc_id].name
+                event = {
+                    "type": "live_transcript",
+                    "speaker": self._my_pc_id,
+                    "speaker_name": speaker_name,
+                    "original": text,
+                    "original_lang": source_lang.value,
+                }
+                self._session.live_transcripts[self._my_pc_id] = event
+                await self._session.event_queue.put(event)
+            return
+
         if isinstance(frame, TranscriptionFrame) and direction == FrameDirection.DOWNSTREAM:
             text = frame.text.strip()
-            if text:
+            logger.info(f"[Translation] TranscriptionFrame received for {self._my_pc_id}: '{text[:80]}'")
+            if text and not _is_filler_only(text):
                 # Use the DECLARED participant language, not the STT-detected language tag.
                 # STT language detection defaults to English and causes translation to be skipped.
                 my_lang = self._session.participants[self._my_pc_id].language
+                self._session.live_transcripts[self._my_pc_id] = {
+                    "type": "live_transcript",
+                    "speaker": self._my_pc_id,
+                    "speaker_name": self._session.participants[self._my_pc_id].name,
+                    "original": text,
+                    "original_lang": my_lang.value,
+                }
                 self.create_task(self._translate_and_inject(text, my_lang), "translate")
             # Don't push TranscriptionFrame further — TTS on this participant's pipeline
             # should only receive TTSSpeakFrames injected by the OTHER participant's translator.
             return
 
+        if isinstance(frame, TTSSpeakFrame) and direction == FrameDirection.DOWNSTREAM:
+            logger.info(f"[Translation] TTSSpeakFrame passing through to TTS for {self._my_pc_id}: '{frame.text[:60]}'")
+
         await self.push_frame(frame, direction)
 
     async def _translate_and_inject(self, text: str, source_lang: Language):
-        other = self._get_other_participant()
-        if not other or not other.pipeline_task:
-            logger.warning("TranslationProcessor: no other participant ready yet — dropping frame")
-            return
+        try:
+            other = self._get_other_participant()
+            if not other or not other.pipeline_task:
+                logger.warning("TranslationProcessor: no other participant ready yet — dropping frame")
+                return
 
-        target_lang = other.language
-        source_name = source_lang.value
-        target_name = target_lang.value
-        logger.info(f"Translating: {source_name} → {target_name} | '{text[:60]}'")
+            target_lang = other.language
+            source_name = source_lang.value
+            target_name = target_lang.value
+            logger.info(f"[Translation] {source_name} → {target_name} | '{text[:60]}'")
 
-        # Skip translation if same language
-        if source_lang == target_lang:
-            await other.pipeline_task.queue_frames([TTSSpeakFrame(text=text)])
-            # Push event to dashboard even if no translation
+            # Skip translation if same language
+            if source_lang == target_lang:
+                logger.info(f"[Translation] Same language — relaying directly")
+                await other.pipeline_task.queue_frames([TTSSpeakFrame(text=text)])
+                event = {
+                    "type": "turn",
+                    "speaker": self._my_pc_id,
+                    "speaker_name": self._session.participants[self._my_pc_id].name,
+                    "original": text,
+                    "original_lang": source_name,
+                    "translated": text,
+                    "translated_lang": target_name,
+                }
+                self._session.live_transcripts.pop(self._my_pc_id, None)
+                self._session.transcript.append(event)
+                await self._session.event_queue.put(event)
+                return
+
+            # Translate via direct API call (bypasses run_inference's NOT_GIVEN param clutter)
+            system_instruction = (
+                f"Translate from {source_name} to {target_name}. "
+                "Output ONLY the translation, nothing else. "
+                "If the input consists entirely of filler sounds (e.g. 'um', 'uh', 'ahh', 'hmm') with no meaningful content, output nothing."
+            )
+            logger.info(f"[Translation] Calling Cerebras for translation...")
+            response = await self._llm._client.chat.completions.create(
+                model=self._llm._settings.model,
+                messages=[
+                    {"role": "system", "content": system_instruction},
+                    {"role": "user", "content": text},
+                ],
+                max_completion_tokens=500,
+                stream=False,
+            )
+            translated = response.choices[0].message.content
+            logger.info(f"[Translation] Cerebras result: {repr(translated)}")
+            if not translated:
+                logger.warning("[Translation] Empty result from Cerebras — skipping TTS injection")
+                return
+
+            # Inject into other participant's pipeline
+            logger.info(f"[Translation] Injecting TTSSpeakFrame into {other.name}'s pipeline")
+            await other.pipeline_task.queue_frames([TTSSpeakFrame(text=translated.strip())])
+            logger.info(f"[Translation] Injected successfully")
+
+            # Push event to dashboard
             event = {
                 "type": "turn",
                 "speaker": self._my_pc_id,
                 "speaker_name": self._session.participants[self._my_pc_id].name,
                 "original": text,
                 "original_lang": source_name,
-                "translated": text,
+                "translated": translated.strip(),
                 "translated_lang": target_name,
             }
+            self._session.live_transcripts.pop(self._my_pc_id, None)
             self._session.transcript.append(event)
             await self._session.event_queue.put(event)
-            return
-
-        # Translate via Groq run_inference
-        temp_context = LLMContext()
-        temp_context.add_message({"role": "user", "content": text})
-        translated = await self._llm.run_inference(
-            temp_context, max_tokens=500,
-            system_instruction=f"Translate from {source_name} to {target_name}. Output ONLY the translation, nothing else."
-        )
-        if not translated:
-            return
-
-        # Inject into other participant's pipeline
-        await other.pipeline_task.queue_frames([TTSSpeakFrame(text=translated.strip())])
-
-        # Push event to dashboard
-        event = {
-            "type": "turn",
-            "speaker": self._my_pc_id,
-            "speaker_name": self._session.participants[self._my_pc_id].name,
-            "original": text,
-            "original_lang": source_name,
-            "translated": translated.strip(),
-            "translated_lang": target_name,
-        }
-        self._session.transcript.append(event)
-        await self._session.event_queue.put(event)
+        except Exception as e:
+            logger.exception("[Translation] _translate_and_inject failed")
 
     def _get_other_participant(self):
         for pc_id, p in self._session.participants.items():
@@ -1573,27 +1712,33 @@ async def run_translation_participant(
         ),
     )
 
-    # Configure STT with the participant's declared language for better non-English accuracy
-    from pipecat.services.elevenlabs.stt import ElevenLabsRealtimeSTTService
+    # Use ElevenLabs-side VAD commit so STT commits ~500ms after speech ends,
+    # without depending on Pipecat's VADUserStoppedSpeakingFrame which is unreliable
+    # with push-to-talk muting (MANUAL commit mode would wait up to 10s for pipecat VAD).
+    from pipecat.services.elevenlabs.stt import ElevenLabsRealtimeSTTService, CommitStrategy
     stt = ElevenLabsRealtimeSTTService(
         api_key=os.getenv("ELEVENLABS_API_KEY"),
-        language=participant.language.value if participant.language else None,
+        commit_strategy=CommitStrategy.VAD,
+        settings=ElevenLabsRealtimeSTTService.Settings(
+            language=participant.language.value,
+            vad_silence_threshold_secs=0.5,
+        ),
     )
 
-    # Dedicated Groq instance for translation
-    translation_llm = GroqLLMService(
-        api_key=os.getenv("GROQ_API_KEY"),
-        settings=GroqLLMService.Settings(model="llama-3.3-70b-versatile"), 
+    from pipecat.services.cerebras.llm import CerebrasLLMService
+    translation_llm = CerebrasLLMService(
+        api_key=os.getenv("CEREBRAS_API_KEY"),
+        settings=CerebrasLLMService.Settings(model="gpt-oss-120b"),
     )
 
-    # TTS pre-configured for this participant's language
-    from pipecat.services.elevenlabs.tts import ElevenLabsTTSService       
+    # TTS: voice only — no language/model override so ElevenLabs uses its
+    # default multilingual model, which handles both English and Mandarin
+    # without needing a language code that may be rejected by turbo v2.5.
+    from pipecat.services.elevenlabs.tts import ElevenLabsTTSService
     tts = ElevenLabsTTSService(
         api_key=os.getenv("ELEVENLABS_API_KEY"),
         settings=ElevenLabsTTSService.Settings(
             voice=participant.voice_config["voice_id"],
-            language=participant.voice_config["language"],
-            model="eleven_turbo_v2_5",
         ),
     )
 
@@ -1604,11 +1749,14 @@ async def run_translation_participant(
     )
 
 
+    audio_probe = AudioProbeProcessor(label=participant.name)
+
     pipeline = Pipeline([
         transport.input(),
         stt,
         translator,
         tts,
+        audio_probe,
         transport.output(),
     ])
 
@@ -1637,6 +1785,477 @@ async def run_translation_participant(
 
     runner = PipelineRunner(handle_sigint=False)
     await runner.run(task)
+
+
+# ---------------------------------------------------------------------------
+# Auto-detect translation — single WebRTC connection, no PTT required.
+# Detects language of each utterance and translates to the opposite language
+# in the configured pair.  Used by the "face-to-face / always-listening" mode.
+# ---------------------------------------------------------------------------
+
+class AutoTranslationProcessor(FrameProcessor):
+    """Language-aware single-session translator.
+
+    Receives TranscriptionFrames, detects the spoken language, translates to
+    the opposite language in the configured pair, and pushes a TTSSpeakFrame
+    downstream into the same pipeline.  No cross-pipeline injection needed.
+    """
+
+    def __init__(
+        self,
+        translation_llm: GroqLLMService,
+        lang_a: Language,
+        lang_b: Language,
+        **kwargs,
+    ):
+        super().__init__(**kwargs)
+        self._llm   = translation_llm
+        self._lang_a = lang_a
+        self._lang_b = lang_b
+
+    def _canonicalize_pair_language(self, language: Language | None) -> Language | None:
+        """Map STT language variants onto one of the configured pair languages."""
+        if language is None:
+            return None
+
+        value = language.value.lower().replace("_", "-")
+        for candidate in (self._lang_a, self._lang_b):
+            candidate_value = candidate.value.lower().replace("_", "-")
+            if value == candidate_value or value.split("-", 1)[0] == candidate_value.split("-", 1)[0]:
+                return candidate
+
+        return None
+
+    async def process_frame(self, frame, direction):
+        await super().process_frame(frame, direction)
+
+        if isinstance(frame, TranscriptionFrame) and direction == FrameDirection.DOWNSTREAM:
+            text = frame.text.strip()
+            if text and not _is_filler_only(text):
+                detected = self._canonicalize_pair_language(frame.language)
+                self.create_task(self._translate_and_speak(text, detected), "auto-translate")
+            return  # consume — don't let raw transcription reach TTS
+
+        await self.push_frame(frame, direction)
+
+    async def _translate_and_speak(self, text: str, source_lang: Language | None):
+        try:
+            # Map Language enum values to human-readable names for the LLM prompt.
+            _LANG_NAMES = {
+                "en": "English",
+                "zh": "Chinese (Mandarin)",
+                "ar": "Arabic",
+                "vi": "Vietnamese",
+                "ko": "Korean",
+                "hi": "Hindi",
+                "el": "Greek",
+            }
+            a_name = _LANG_NAMES.get(self._lang_a.value, self._lang_a.value)
+            b_name = _LANG_NAMES.get(self._lang_b.value, self._lang_b.value)
+
+            logger.info(f"[AutoTranslation] STT lang={source_lang.value if source_lang else 'unknown'} | '{text[:60]}'")
+
+            # Build the translation prompt.
+            # When STT provides a confident language tag, use an explicit directional prompt
+            # (much more reliable for small models).
+            # When STT returns None (auto-detect failed), use LLM-side language detection.
+            # source_lang is already normalized to the configured pair in process_frame.
+            if source_lang == self._lang_b:
+                # STT gave us a usable language tag — build explicit A→B or B→A prompt
+                src_name, tgt_name = b_name, a_name
+                system_instruction = (
+                    f"Translate the following {src_name} text into {tgt_name}. "
+                    "Output ONLY the translation. No explanations, no labels, no original text. "
+                    "If the input is filler sounds only (e.g. 'um', 'uh', '嗯', '啊'), output nothing."
+                )
+            else:
+                # STT language unknown — ask the LLM to detect and translate
+                system_instruction = (
+                    f"You translate between {a_name} and {b_name}. "
+                    f"If the input is {a_name}, output only its {b_name} translation. "
+                    f"If the input is {b_name}, output only its {a_name} translation. "
+                    "Output ONLY the translation. No explanations, no labels, no original text. "
+                    "If the input is filler sounds only (e.g. 'um', 'uh', '嗯', '啊'), output nothing."
+                )
+            response = await self._llm._client.chat.completions.create(
+                model=self._llm._settings.model,
+                messages=[
+                    {"role": "system", "content": system_instruction},
+                    {"role": "user", "content": text},
+                ],
+                max_completion_tokens=500,
+                stream=False,
+            )
+            translated = response.choices[0].message.content
+            if translated:
+                logger.info(f"[AutoTranslation] → '{translated.strip()[:60]}'")
+                await self.push_frame(TTSSpeakFrame(text=translated.strip()))
+            else:
+                logger.warning("[AutoTranslation] Empty result from Cerebras")
+        except Exception as e:
+            logger.exception("[AutoTranslation] Translation error")
+
+
+class FixedAutoTranslationProcessor(AutoTranslationProcessor):
+    """Auto-translation processor with explicit source->target routing."""
+
+    _CJK_RE = re.compile(r"[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]")
+    _LATIN_RE = re.compile(r"[A-Za-z]")
+
+    def _detect_lang_from_text(self, text: str) -> Language | None:
+        """Fallback language detection for the en/zh auto-translation mode."""
+        if self._CJK_RE.search(text):
+            return self._lang_b
+        if self._LATIN_RE.search(text):
+            return self._lang_a
+        return None
+
+    async def process_frame(self, frame, direction):
+        await FrameProcessor.process_frame(self, frame, direction)
+
+        if isinstance(frame, TranscriptionFrame) and direction == FrameDirection.DOWNSTREAM:
+            text = frame.text.strip()
+            if text and not _is_filler_only(text):
+                detected = self._canonicalize_pair_language(frame.language) or self._detect_lang_from_text(text)
+                self.create_task(self._translate_and_speak(text, detected), "auto-translate")
+            return
+
+        await self.push_frame(frame, direction)
+
+    async def _translate_and_speak(self, text: str, source_lang: Language | None):
+        try:
+            language_names = {
+                "en": "English",
+                "zh": "Chinese (Mandarin)",
+                "ar": "Arabic",
+                "vi": "Vietnamese",
+                "ko": "Korean",
+                "hi": "Hindi",
+                "el": "Greek",
+            }
+            a_name = language_names.get(self._lang_a.value, self._lang_a.value)
+            b_name = language_names.get(self._lang_b.value, self._lang_b.value)
+
+            logger.info(
+                f"[AutoTranslation] STT lang={source_lang.value if source_lang else 'unknown'} | '{text[:60]}'"
+            )
+
+            if source_lang == self._lang_b:
+                src_name, tgt_name = b_name, a_name
+                system_instruction = (
+                    f"Translate the following {src_name} text into {tgt_name}. "
+                    "Output ONLY the translation. No explanations, no labels, no original text. "
+                    "If the input is filler sounds only (e.g. 'um', 'uh', 'å—¯', 'å•Š'), output nothing."
+                )
+            elif source_lang == self._lang_a:
+                src_name, tgt_name = a_name, b_name
+                system_instruction = (
+                    f"Translate the following {src_name} text into {tgt_name}. "
+                    "Output ONLY the translation. No explanations, no labels, no original text. "
+                    "If the input is filler sounds only (e.g. 'um', 'uh', 'å—¯', 'å•Š'), output nothing."
+                )
+            else:
+                system_instruction = (
+                    f"You translate between {a_name} and {b_name}. "
+                    f"If the input is {a_name}, output only its {b_name} translation. "
+                    f"If the input is {b_name}, output only its {a_name} translation. "
+                    "Output ONLY the translation. No explanations, no labels, no original text. "
+                    "If the input is filler sounds only (e.g. 'um', 'uh', 'å—¯', 'å•Š'), output nothing."
+                )
+
+            response = await self._llm._client.chat.completions.create(
+                model=self._llm._settings.model,
+                messages=[
+                    {"role": "system", "content": system_instruction},
+                    {"role": "user", "content": text},
+                ],
+                max_completion_tokens=500,
+                stream=False,
+            )
+            translated = response.choices[0].message.content
+            if translated:
+                logger.info(f"[AutoTranslation] -> '{translated.strip()[:60]}'")
+                await self.push_frame(TTSSpeakFrame(text=translated.strip()))
+            else:
+                logger.warning("[AutoTranslation] Empty result from Cerebras")
+        except Exception:
+            logger.exception("[AutoTranslation] Translation error")
+
+
+class StrictAutoTranslationProcessor(FixedAutoTranslationProcessor):
+    """Translator-only processor with minimal prompting and deterministic settings."""
+
+    def __init__(self, *args, session: TranslationSession | None = None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._session = session
+        self._preview_task: asyncio.Task | None = None
+
+    def _event_speaker(self, source_lang: Language | None) -> tuple[str, str]:
+        if source_lang == self._lang_b:
+            return self._lang_b.value, "Mandarin"
+        if source_lang == self._lang_a:
+            return self._lang_a.value, "English"
+        return "unknown", "Speaker"
+
+    def _target_lang(self, source_lang: Language | None) -> Language | None:
+        if source_lang == self._lang_b:
+            return self._lang_a
+        if source_lang == self._lang_a:
+            return self._lang_b
+        return None
+
+    async def _translate_text(self, text: str, source_lang: Language | None, *, max_completion_tokens: int) -> tuple[str | None, Language | None]:
+        language_names = {
+            "en": "English",
+            "zh": "Chinese (Mandarin)",
+        }
+        a_name = language_names.get(self._lang_a.value, self._lang_a.value)
+        b_name = language_names.get(self._lang_b.value, self._lang_b.value)
+
+        target_lang = self._target_lang(source_lang)
+        target_language = language_names.get(target_lang.value, target_lang.value) if target_lang else None
+
+        system_instruction = (
+            "You are a translation engine.\n"
+            "Translate only.\n"
+            "Never explain, define, annotate, answer questions, or add notes.\n"
+            "Return only the translated text.\n"
+            "If the input is filler-only or has no meaningful content, return an empty string."
+        )
+
+        if target_language:
+            user_prompt = f"Target language: {target_language}\nText:\n{text}"
+        else:
+            user_prompt = (
+                f"Detect whether the text is {a_name} or {b_name}. "
+                f"If it is {a_name}, translate it to {b_name}. "
+                f"If it is {b_name}, translate it to {a_name}. "
+                "Return only the translation.\n"
+                f"Text:\n{text}"
+            )
+
+        response = await self._llm._client.chat.completions.create(
+            model=self._llm._settings.model,
+            messages=[
+                {"role": "system", "content": system_instruction},
+                {"role": "user", "content": user_prompt},
+            ],
+            temperature=0,
+            max_completion_tokens=max_completion_tokens,
+            stream=False,
+        )
+        translated = response.choices[0].message.content
+        return (translated.strip() if translated else None), (target_lang or self._target_lang(source_lang))
+
+    async def _publish_live_preview(self, text: str, source_lang: Language | None):
+        if not self._session or source_lang is None:
+            return
+
+        translated, target_lang = await self._translate_text(text, source_lang, max_completion_tokens=80)
+        if not translated or target_lang is None:
+            return
+
+        event = {
+            "type": "live_preview",
+            "speaker": source_lang.value,
+            "speaker_name": self._event_speaker(source_lang)[1],
+            "target_lang": target_lang.value,
+            "text": translated,
+        }
+        self._session.live_previews[target_lang.value] = event
+        await self._session.event_queue.put(event)
+
+    async def process_frame(self, frame, direction):
+        await FrameProcessor.process_frame(self, frame, direction)
+
+        if direction != FrameDirection.DOWNSTREAM:
+            await self.push_frame(frame, direction)
+            return
+
+        if isinstance(frame, InterimTranscriptionFrame):
+            text = frame.text.strip()
+            if text and not _is_filler_only(text):
+                detected = self._canonicalize_pair_language(frame.language) or self._detect_lang_from_text(text)
+                if self._session:
+                    speaker, speaker_name = self._event_speaker(detected)
+                    event = {
+                        "type": "live_transcript",
+                        "speaker": speaker,
+                        "speaker_name": speaker_name,
+                        "original": text,
+                        "original_lang": detected.value if detected else "unknown",
+                    }
+                    self._session.live_transcripts[speaker] = event
+                    await self._session.event_queue.put(event)
+                if self._preview_task and not self._preview_task.done():
+                    await self.cancel_task(self._preview_task)
+
+                async def _debounced_preview():
+                    await asyncio.sleep(0.15)
+                    await self._publish_live_preview(text, detected)
+
+                self._preview_task = self.create_task(_debounced_preview(), "auto-translate-preview")
+            return
+
+        if isinstance(frame, TranscriptionFrame):
+            text = frame.text.strip()
+            if text and not _is_filler_only(text):
+                detected = self._canonicalize_pair_language(frame.language) or self._detect_lang_from_text(text)
+                if self._preview_task and not self._preview_task.done():
+                    await self.cancel_task(self._preview_task)
+                if self._session:
+                    speaker, speaker_name = self._event_speaker(detected)
+                    self._session.live_transcripts[speaker] = {
+                        "type": "live_transcript",
+                        "speaker": speaker,
+                        "speaker_name": speaker_name,
+                        "original": text,
+                        "original_lang": detected.value if detected else "unknown",
+                    }
+                self.create_task(self._translate_and_speak(text, detected), "auto-translate")
+            return
+
+        await self.push_frame(frame, direction)
+
+    async def _translate_and_speak(self, text: str, source_lang: Language | None):
+        try:
+            logger.info(
+                f"[AutoTranslation] STT lang={source_lang.value if source_lang else 'unknown'} | '{text[:60]}'"
+            )
+            translated, target_lang = await self._translate_text(text, source_lang, max_completion_tokens=200)
+            if translated:
+                logger.info(f"[AutoTranslation] -> '{translated[:60]}'")
+                if self._session:
+                    speaker, speaker_name = self._event_speaker(source_lang)
+                    event = {
+                        "type": "turn",
+                        "speaker": speaker,
+                        "speaker_name": speaker_name,
+                        "original": text,
+                        "original_lang": source_lang.value if source_lang else "unknown",
+                        "translated": translated,
+                        "translated_lang": target_lang.value if target_lang else "unknown",
+                    }
+                    self._session.live_transcripts.pop(speaker, None)
+                    if target_lang:
+                        self._session.live_previews.pop(target_lang.value, None)
+                    self._session.transcript.append(event)
+                    await self._session.event_queue.put(event)
+                await self.push_frame(TTSSpeakFrame(text=translated))
+            else:
+                logger.warning("[AutoTranslation] Empty result from Cerebras")
+        except Exception:
+            logger.exception("[AutoTranslation] Translation error")
+
+
+async def run_auto_translation(
+    webrtc_connection: SmallWebRTCConnection,
+    lang_a: str,
+    lang_b: str,
+    session: TranslationSession | None = None,
+):
+    """Single-pipeline auto-detect translation session."""
+    transport = SmallWebRTCTransport(
+        webrtc_connection=webrtc_connection,
+        params=TransportParams(
+            audio_in_enabled=True,
+            audio_out_enabled=True,
+            vad_enabled=True,
+            vad_analyzer=SileroVADAnalyzer(),
+        ),
+    )
+
+    from pipecat.services.elevenlabs.stt import ElevenLabsRealtimeSTTService, CommitStrategy
+    stt = ElevenLabsRealtimeSTTService(
+        api_key=os.getenv("ELEVENLABS_API_KEY"),
+        commit_strategy=CommitStrategy.VAD,
+        settings=ElevenLabsRealtimeSTTService.Settings(
+            vad_silence_threshold_secs=0.6,
+            # No language lock — STT auto-detects Chinese vs English
+        ),
+    )
+
+    from pipecat.services.cerebras.llm import CerebrasLLMService
+    translation_llm = CerebrasLLMService(
+        api_key=os.getenv("CEREBRAS_API_KEY"),
+        settings=CerebrasLLMService.Settings(model="llama3.1-8b"),
+    )
+
+    # Use a multilingual voice — handles both languages without voice-switching
+    from pipecat.services.elevenlabs.tts import ElevenLabsTTSService
+    tts = ElevenLabsTTSService(
+        api_key=os.getenv("ELEVENLABS_API_KEY"),
+        settings=ElevenLabsTTSService.Settings(
+            voice=os.getenv(
+                "ELEVENLABS_MULTILINGUAL_VOICE_ID",
+                os.getenv("ELEVENLABS_VOICE_ID", ""),
+            ),
+        ),
+    )
+
+    auto_translator = StrictAutoTranslationProcessor(
+        translation_llm=translation_llm,
+        lang_a=Language(lang_a),
+        lang_b=Language(lang_b),
+        session=session,
+    )
+
+    pipeline = Pipeline([
+        transport.input(),
+        stt,
+        auto_translator,
+        tts,
+        transport.output(),
+    ])
+
+    task = PipelineTask(pipeline, params=PipelineParams(enable_metrics=True))
+
+    @transport.event_handler("on_client_connected")
+    async def on_client_connected(transport, client):
+        logger.info(f"Auto-translation connected — {lang_a} ↔ {lang_b}")
+        if session:
+            session.status = "live"
+            await session.event_queue.put({"type": "status", "status": "live"})
+
+    @transport.event_handler("on_client_disconnected")
+    async def on_client_disconnected(transport, client):
+        logger.info("Auto-translation disconnected")
+        if session:
+            session.status = "ended"
+            session.ended_at = datetime.now()
+            await session.event_queue.put({"type": "status", "status": "ended"})
+        await task.cancel()
+
+    runner = PipelineRunner(handle_sigint=False)
+    await runner.run(task)
+
+
+@app.post("/api/translation/auto-offer")
+async def auto_translation_offer(request: Request, background_tasks: BackgroundTasks):
+    """Single-connection auto language-detect translation (face-to-face / always-listening mode)."""
+    data = await request.json()
+    session_id = data.get("session_id")
+    lang_a = data.get("lang_a", "en")
+    lang_b = data.get("lang_b", "zh")
+    session = translation_sessions.get(session_id) if session_id else None
+    if session_id and not session:
+        return Response(status_code=404, content="Session not found")
+
+    session_ice_servers, _ = fetch_twilio_ice_servers()
+    connection = SmallWebRTCConnection(session_ice_servers)
+    await connection.initialize(sdp=data["sdp"], type=data["type"])
+
+    answer = _filter_relay_sdp(connection.get_answer())
+    pc_id = answer["pc_id"]
+    pcs_map[pc_id] = connection
+
+    @connection.event_handler("closed")
+    async def handle_closed(conn):
+        pcs_map.pop(conn.pc_id, None)
+
+    background_tasks.add_task(run_auto_translation, connection, lang_a, lang_b, session)
+    return answer
+
 
 @app.post("/api/translation/session")
 async def create_translation_session(request: Request):
@@ -1670,7 +2289,7 @@ async def translation_offer(request: Request, background_tasks: BackgroundTasks)
     connection = SmallWebRTCConnection(session_ice_servers)
     await connection.initialize(sdp=data["sdp"], type=data["type"])
 
-    answer = connection.get_answer()
+    answer = _filter_relay_sdp(connection.get_answer())
     pc_id = answer["pc_id"]
     pcs_map[pc_id] = connection
 
@@ -1739,11 +2358,19 @@ async def get_translation_session(session_id: str):
         "topic": session.topic,
         "status": session.status,
         "transcript": session.transcript,
+        "live_transcripts": session.live_transcripts,
+        "live_previews": session.live_previews,
         "participants": [
             {"pc_id": p.pc_id, "name": p.name, "language": p.language.value}
             for p in session.participants.values()
         ],
     }
+
+@app.get("/vocare", response_class=HTMLResponse)
+async def vocare_app():
+    html_path = os.path.join(os.path.dirname(__file__), "static", "vocare.html")
+    with open(html_path) as f:
+        return HTMLResponse(content=f.read())
 
 @app.get("/translate/{session_id}", response_class=HTMLResponse)
 async def translate_join_page(session_id: str):

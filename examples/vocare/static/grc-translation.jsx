@@ -34,7 +34,10 @@ function TranslationPage() {
         const res = await fetch(`/api/translation/session/${selectedSession}`);
         if (res.ok) {
           const data = await res.json();
-          setSessionData(data);
+          setSessionData({
+            ...data,
+            live_transcripts: data.live_transcripts || {}
+          });
         }
       } catch (err) {
         console.error("Failed to fetch full session", err);
@@ -50,14 +53,19 @@ function TranslationPage() {
             setSessionData(prev => {
               if (!prev) return prev;
               const newTranscript = [...prev.transcript];
+              const newLive = { ...(prev.live_transcripts || {}) };
+              let nextStatus = prev.status;
               for (const ev of data.events) {
                 if (ev.type === 'turn') {
                   newTranscript.push(ev);
+                  if (ev.speaker) delete newLive[ev.speaker];
+                } else if (ev.type === 'live_transcript') {
+                  newLive[ev.speaker] = ev;
                 } else if (ev.type === 'status') {
-                  prev.status = ev.status;
+                  nextStatus = ev.status;
                 }
               }
-              return { ...prev, transcript: newTranscript };
+              return { ...prev, status: nextStatus, transcript: newTranscript, live_transcripts: newLive };
             });
             setTimeout(() => {
               transcriptEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -160,6 +168,18 @@ function TranslationPage() {
             </div>
             
             <div style={{ flex: 1, overflowY: 'auto', padding: 24, display: 'flex', flexDirection: 'column', gap: 16 }}>
+              {sessionData.live_transcripts && Object.values(sessionData.live_transcripts).length > 0 && (
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
+                  {Object.values(sessionData.live_transcripts).map((t) => (
+                    <div key={`live-${t.speaker}`} style={{ padding: '10px 14px', borderRadius: 999, background: '#FFF8E7', border: '1px solid #FFE58F', color: '#7A5D00', maxWidth: '100%' }}>
+                      <span style={{ fontSize: 11, fontWeight: 800, textTransform: 'uppercase', marginRight: 8 }}>
+                        Live {t.speaker_name}
+                      </span>
+                      <span style={{ fontSize: 13, fontWeight: 600 }}>{t.original}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
               {sessionData.transcript && sessionData.transcript.length > 0 ? sessionData.transcript.map((t, i) => (
                 <div key={i} style={{ background: '#F4F5F6', padding: 16, borderRadius: 12, maxWidth: '80%', alignSelf: i % 2 === 0 ? 'flex-start' : 'flex-end' }}>
                   <div style={{ fontSize: 11, color: '#888', marginBottom: 4, textTransform: 'uppercase', fontWeight: 600 }}>
