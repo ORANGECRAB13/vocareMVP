@@ -601,6 +601,7 @@
     let pingInterval = null;
     let disconnectTimer = null;
     let eventSource = null;
+    let remoteAudio = null;
 
     // Mode state
     let currentMode = 'demo';
@@ -663,9 +664,15 @@
         };
 
         pc.ontrack = (event) => {
-          const audio = new Audio();
-          audio.srcObject = event.streams[0];
-          audio.autoplay = true;
+          if (!remoteAudio) {
+            remoteAudio = new Audio();
+            remoteAudio.autoplay = true;
+            remoteAudio.playsInline = true;
+          }
+          remoteAudio.srcObject = event.streams[0];
+          remoteAudio.play().catch((e) => {
+            console.warn('[AUDIO] Playback was blocked or interrupted', e);
+          });
         };
 
         pc.onconnectionstatechange = () => {
@@ -945,6 +952,11 @@
       if (pc) {
         pc.getSenders().forEach(s => { if (s.track) s.track.stop(); });
         pc.close();
+      }
+      if (remoteAudio) {
+        remoteAudio.pause();
+        remoteAudio.srcObject = null;
+        remoteAudio = null;
       }
       pc = null;
       pcId = null;

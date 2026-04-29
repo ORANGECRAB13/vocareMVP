@@ -154,6 +154,8 @@ from pipecat.processors.aggregators.llm_response_universal import (
 from pipecat.turns.user_mute.mute_until_first_bot_complete_user_mute_strategy import (
     MuteUntilFirstBotCompleteUserMuteStrategy,
 )
+from pipecat.turns.user_start import MinWordsUserTurnStartStrategy
+from pipecat.turns.user_turn_strategies import UserTurnStrategies
 from pipecat.processors.frame_processor import FrameDirection
 from pipecat.services.llm_service import LLMService
 from pipecat.services.llm_service import FunctionCallParams
@@ -801,10 +803,21 @@ async def run_bot(
     user_aggregator, assistant_aggregator = LLMContextAggregatorPair(
         context,
         user_params=LLMUserAggregatorParams(
+            user_turn_strategies=UserTurnStrategies(
+                start=[
+                    MinWordsUserTurnStartStrategy(
+                        min_words=4,
+                        use_interim=False,
+                        enable_interruptions=False,
+                    )
+                ],
+            ),
             vad_analyzer=SileroVADAnalyzer(
                 params=VADParams(
-                    start_secs=0.3,
-                    stop_secs=0.2,
+                    confidence=0.8,
+                    start_secs=0.45,
+                    stop_secs=0.35,
+                    min_volume=0.7,
                 )
             ),
             user_mute_strategies=[MuteUntilFirstBotCompleteUserMuteStrategy()],
