@@ -6,7 +6,7 @@ A real-time voice AI agent built on [Pipecat](https://github.com/pipecat-ai/pipe
 
 - WebRTC audio/video via SmallWebRTC transport
 - Configurable STT: Deepgram, ElevenLabs
-- Configurable LLM: Mistral, Groq
+- Configurable LLM: Mistral, Cerebras
 - Configurable TTS: ElevenLabs
 - Silero VAD (pre-loaded for low-latency session startup)
 - Optional Neo4j knowledge graph with 3D graph visualization
@@ -32,7 +32,7 @@ uv sync --group dev --all-extras --no-extra gstreamer
 Or install just what the vocare example needs:
 
 ```bash
-uv pip install pipecat-ai[deepgram,elevenlabs,mistral,groq,silero,smallwebrtc] fastapi uvicorn python-dotenv
+uv pip install pipecat-ai[deepgram,elevenlabs,mistral,cerebras,silero,smallwebrtc] fastapi uvicorn python-dotenv
 ```
 
 ### 2. Configure environment variables
@@ -52,7 +52,7 @@ ELEVENLABS_API_KEY=...
 
 # LLM
 MISTRAL_API_KEY=...
-GROQ_API_KEY=...
+CEREBRAS_API_KEY=...
 
 # TTS
 ELEVENLABS_VOICE_ID=...   # ElevenLabs voice ID
@@ -94,7 +94,7 @@ The frontend lets you select STT, LLM, and TTS providers before connecting. Once
 
 ### Knowledge graph mode
 
-When `NEO4J_URI` is set, the bot loads as a **Qantas customer service agent**. It can look up booking references, flight operations, baggage, and hotel/rebooking information from the graph. The 3D graph visualization highlights nodes in real time as the bot discusses them.
+When `NEO4J_URI` is set, the bot loads as a **CommBank Premier Relationship Manager** (Aria). It can look up customer accounts, card status, transactions, and replacement card information from the graph. The 3D graph visualization highlights nodes in real time as the bot discusses them with the customer.
 
 Demo booking reference: **QF-8842**
 
@@ -116,7 +116,7 @@ Browser (WebRTC) ──► SmallWebRTCTransport
                          │
                     STTService (Deepgram / ElevenLabs)
                          │
-                    LLMService (Mistral / Groq)  ──► Neo4j (optional)
+                    LLMService (Mistral / Cerebras)  ──► Neo4j (optional)
                          │
                     TTSService (ElevenLabs)
                          │

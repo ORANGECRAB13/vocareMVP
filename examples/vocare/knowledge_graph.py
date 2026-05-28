@@ -1,18 +1,19 @@
 """Neo4j knowledge graph integration for proactive customer context.
 
-Provides graph seeding with mock Qantas flight disruption data and
+Provides graph seeding with mock CommBank account/fraud data and
 async context retrieval for use at call connection time.
 """
 
 import asyncio
 import json
+import re
 from typing import Dict, List, Optional
 
 from loguru import logger
 
 
 def seed_graph(driver):
-    """Populate Neo4j with mock Qantas flight disruption data.
+    """Populate Neo4j with mock CommBank account/fraud scenario data.
 
     Idempotent — uses MERGE to avoid duplicates. Safe to call on every startup.
 
@@ -23,167 +24,127 @@ def seed_graph(driver):
         session.run(
             """
             // ── Customer ──────────────────────────────────────────────────
-            MERGE (c:Customer {booking_ref: 'QF-8200'})
+            MERGE (c:Customer {customer_id: 'CUST-10042'})
             SET c.name = 'Jack Smith',
                 c.phone = '+61412345678',
-                c.loyalty_tier = 'Silver'
+                c.tier = 'Premier'
 
             // ── Channel hubs ───────────────────────────────────────────────
-            MERGE (ch1:Channel {name: 'CRM'})
-            SET ch1.display_name = 'CRM Channel'
+            MERGE (ch1:Channel {name: 'Accounts'})
+            SET ch1.display_name = 'Accounts Channel'
 
-            MERGE (ch2:Channel {name: 'Communications'})
-            SET ch2.display_name = 'Communications Channel'
+            MERGE (ch2:Channel {name: 'Cards'})
+            SET ch2.display_name = 'Cards Channel'
 
-            MERGE (ch3:Channel {name: 'Baggage Handling'})
-            SET ch3.display_name = 'Baggage Handling Channel'
+            MERGE (ch3:Channel {name: 'Communications'})
+            SET ch3.display_name = 'Communications Channel'
 
-            MERGE (ch4:Channel {name: 'CodeShare Flights'})
-            SET ch4.display_name = 'CodeShare Flights Channel'
+            MERGE (ch4:Channel {name: 'Transactions'})
+            SET ch4.display_name = 'Transactions Channel'
 
-            // ── CRM sub-nodes: original booking + past interactions ────────
-            MERGE (f1:FlightOperation {flight_number: 'QF82'})
-            SET f1.route = 'SYD-MEL',
-                f1.status = 'CANCELLED',
-                f1.reason = 'engineering fault on aircraft',
-                f1.scheduled_time = '2026-04-14T22:30',
-                f1.description = 'Sydney to Melbourne, cancelled — engineering hold'
+            // ── Accounts sub-nodes: Visa card and Home Loan ────────────────
+            MERGE (visa:Card {card_number: '**** **** **** 1234'})
+            SET visa.card_type = 'Visa Platinum',
+                visa.status = 'ACTIVE',
+                visa.daily_limit = 10000,
+                visa.current_balance = 4500.00
 
-            MERGE (crm1:CRMRecord {id: 'crm-001'})
-            SET crm1.type = 'Loyalty Query',
-                crm1.date = 'Dec 2025',
-                crm1.description = 'Points balance — 12,400 pts'
+            MERGE (homeloan:HomeLoan {account_number: '200456789'})
+            SET homeloan.status = 'ACTIVE',
+                homeloan.next_payment = 2895.00,
+                homeloan.payment_due = '2026-05-30',
+                homeloan.payment_status = 'REJECTED'
 
-            MERGE (crm2:CRMRecord {id: 'crm-002'})
-            SET crm2.type = 'Seat Upgrade',
-                crm2.date = 'Jan 2026',
-                crm2.description = 'Business class on QF1'
+            // ── Cards sub-nodes: Digital and Physical replacement cards ─────
+            MERGE (digital:DigitalCard {card_id: 'DIGITAL-789456'})
+            SET digital.status = 'PENDING_ACTIVATION',
+                digital.issue_date = '2026-05-28',
+                digital.expiry = '2029-05-28'
 
-            MERGE (crm3:CRMRecord {id: 'crm-003'})
-            SET crm3.type = 'Baggage Policy',
-                crm3.date = 'Mar 2026',
-                crm3.description = 'Excess allowance — 32 kg approved'
+            MERGE (physical:PhysicalCard {card_id: 'PHYSICAL-123789'})
+            SET physical.status = 'ORDERED',
+                physical.issue_date = '2026-05-28',
+                physical.delivery_eta = '1-2 business days',
+                physical.tracking_number = 'AUSTPOST-987654321'
 
             // ── Communications sub-nodes ───────────────────────────────────
-            MERGE (comm1:Communication {channel: 'Email', sent_at: '2026-04-14T22:20'})
-            SET comm1.message = 'Cancellation notice — QF82 SYD to MEL'
+            MERGE (comm1:Communication {channel: 'Push Notification', sent_at: '2026-05-28T10:15:00'})
+            SET comm1.message = 'Suspicious transaction detected on your Visa card - London merchant'
 
-            MERGE (comm2:Communication {channel: 'SMS', sent_at: '2026-04-14T22:46'})
-            SET comm2.message = 'Hotel voucher + $50 meal — Rydges Airport Hotel'
+            MERGE (comm2:Communication {channel: 'SMS', sent_at: '2026-05-28T10:16:00'})
+            SET comm2.message = 'Card temporarily frozen for security. Call 13 2221 for assistance.'
 
-            MERGE (comm3:Communication {channel: 'Phone', sent_at: '2026-04-14T22:50'})
-            SET comm3.message = 'Outbound call — no answer'
-
-            // ── Baggage sub-nodes ──────────────────────────────────────────
-            MERGE (b1:Baggage {tag: 'QF82001'})
-            SET b1.destination = 'MEL',
-                b1.location = 'Terminal 3 Secure Facility',
-                b1.last_scan = 'Carousel 4 — intercepted before loading',
-                b1.status = 'held_secure',
-                b1.weight_kg = 24.5
-
-            MERGE (b2:Baggage {tag: 'QF82002'})
-            SET b2.destination = 'MEL',
-                b2.location = 'Terminal 3 Secure Facility',
-                b2.last_scan = 'Carousel 4 — intercepted before loading',
-                b2.status = 'held_secure',
-                b2.weight_kg = 18.0
-
-            // ── CodeShare Flights sub-nodes ────────────────────────────────
-            MERGE (r1:Rebooking {alt_flight: 'QF83'})
-            SET r1.route = 'SYD-MEL',
-                r1.departure = '2026-04-15T06:00',
-                r1.seats_available = 1,
-                r1.cabin = 'economy',
-                r1.note = 'rescheduled — engineering delay'
-
-            MERGE (r2:Rebooking {alt_flight: 'VA850'})
-            SET r2.route = 'SYD-MEL',
-                r2.departure = '2026-04-15T07:30',
-                r2.seats_available = 3,
-                r2.cabin = 'economy',
-                r2.note = 'Virgin codeshare'
-
-            MERGE (r3:Rebooking {alt_flight: 'QF85'})
-            SET r3.route = 'SYD-MEL',
-                r3.departure = '2026-04-15T09:45',
-                r3.seats_available = 5,
-                r3.cabin = 'economy',
-                r3.note = 'morning departure'
+            // ── Transactions sub-nodes ────────────────────────────────────
+            MERGE (t1:Transaction {id: 'TXN-LONDON-98765'})
+            SET t1.amount = 850.00,
+                t1.currency = 'GBP',
+                t1.merchant = 'London Electronics Ltd',
+                t1.location = 'London, UK',
+                t1.timestamp = '2026-05-28T10:10:00',
+                t1.status = 'FLAGGED',
+                t1.risk_score = 0.92,
+                t1.category = 'Electronics'
 
             // ── Channel membership ─────────────────────────────────────────
-            MERGE (c)-[:HAS_CHANNEL {source: 'Salesforce CRM'}]->(ch1)
-            MERGE (c)-[:HAS_CHANNEL {source: 'Qantas Digital Services'}]->(ch2)
-            MERGE (c)-[:HAS_CHANNEL {source: 'Terminal RFID System'}]->(ch3)
-            MERGE (c)-[:HAS_CHANNEL {source: 'Revenue Management'}]->(ch4)
+            MERGE (c)-[:HAS_CHANNEL {source: 'CommBank Core Banking'}]->(ch1)
+            MERGE (c)-[:HAS_CHANNEL {source: 'CommBank Cards Platform'}]->(ch2)
+            MERGE (c)-[:HAS_CHANNEL {source: 'CommBank Digital Messaging'}]->(ch3)
+            MERGE (c)-[:HAS_CHANNEL {source: 'CommBank Transaction Monitoring'}]->(ch4)
 
-            MERGE (ch1)-[:CONTAINS]->(f1)
-            MERGE (ch1)-[:CONTAINS]->(crm1)
-            MERGE (ch1)-[:CONTAINS]->(crm2)
-            MERGE (ch1)-[:CONTAINS]->(crm3)
+            MERGE (ch1)-[:CONTAINS]->(visa)
+            MERGE (ch1)-[:CONTAINS]->(homeloan)
 
-            MERGE (ch2)-[:CONTAINS]->(comm1)
-            MERGE (ch2)-[:CONTAINS]->(comm2)
-            MERGE (ch2)-[:CONTAINS]->(comm3)
+            MERGE (ch2)-[:CONTAINS]->(digital)
+            MERGE (ch2)-[:CONTAINS]->(physical)
 
-            MERGE (ch3)-[:CONTAINS]->(b1)
-            MERGE (ch3)-[:CONTAINS]->(b2)
+            MERGE (ch3)-[:CONTAINS]->(comm1)
+            MERGE (ch3)-[:CONTAINS]->(comm2)
 
-            MERGE (ch4)-[:CONTAINS]->(r1)
-            MERGE (ch4)-[:CONTAINS]->(r2)
-            MERGE (ch4)-[:CONTAINS]->(r3)
-
-            MERGE (b1)-[:CHECKED_ON]->(f1)
-            MERGE (b2)-[:CHECKED_ON]->(f1)
+            MERGE (ch4)-[:CONTAINS]->(t1)
 
             // ── Event chain (temporal provenance — direct from Customer) ───
             MERGE (e1:Event {id: 'evt-001'})
-            SET e1.type = 'FLIGHT_CANCELLED',
-                e1.timestamp = '2026-04-14T22:15',
-                e1.description = 'QF82 grounded — engineering fault on aircraft'
+            SET e1.type = 'SUSPICIOUS_TRANSACTION',
+                e1.timestamp = '2026-05-28T10:10:00',
+                e1.description = 'GBP 850.00 transaction at London Electronics Ltd flagged as high risk'
 
             MERGE (e2:Event {id: 'evt-002'})
-            SET e2.type = 'BAGGAGE_INTERCEPTED',
-                e2.timestamp = '2026-04-14T22:25',
-                e2.description = 'Bags intercepted at Carousel 4 — held in Terminal 3 Secure'
+            SET e2.type = 'CARD_FROZEN',
+                e2.timestamp = '2026-05-28T10:12:00',
+                e2.description = 'Visa card temporarily frozen due to suspicious activity'
 
             MERGE (e3:Event {id: 'evt-003'})
-            SET e3.type = 'ACCOMMODATION_ARRANGED',
-                e3.timestamp = '2026-04-14T22:40',
-                e3.description = 'Rydges Airport Hotel booked — engineering delay coverage'
-
-            MERGE (e4:Event {id: 'evt-004'})
-            SET e4.type = 'PASSENGER_NOTIFIED',
-                e4.timestamp = '2026-04-14T22:46',
-                e4.description = 'SMS sent: hotel voucher + $50 meal allowance'
+            SET e3.type = 'PAYMENT_REJECTED',
+                e3.timestamp = '2026-05-28T10:14:00',
+                e1.description = 'Home loan payment rejected due to frozen card'
 
             MERGE (e1)-[:TRIGGERED]->(e2)
             MERGE (e2)-[:TRIGGERED]->(e3)
-            MERGE (e3)-[:TRIGGERED]->(e4)
             MERGE (c)-[:EXPERIENCED]->(e1)
+            MERGE (t1)-[:TRIGGERED]->(e1)
 
             // ── CallContext (call-readiness brief) ─────────────────────────
-            MERGE (ctx:CallContext {booking_ref: 'QF-8200'})
-            SET ctx.primary_issue = 'QF82 SYD to MEL cancelled — engineering fault on aircraft',
-                ctx.recommended_action = 'Rebook to QF83 06:00 tomorrow — hotel already arranged',
-                ctx.loyalty_flag = 'Silver — standard engineering delay entitlements apply',
-                ctx.baggage_status = 'Both bags held in Terminal 3 Secure, auto-load to rescheduled flight',
+            MERGE (ctx:CallContext {customer_id: 'CUST-10042'})
+            SET ctx.primary_issue = 'Visa card frozen due to suspicious GBP 850 transaction in London',
+                ctx.recommended_action = 'Verify transaction with customer, offer grace period on mortgage, replace card',
+                ctx.tier_flag = 'Premier — priority handling, proactive fraud detection enabled',
+                ctx.card_status = 'Visa Platinum frozen, digital replacement pending, physical card ordered',
                 ctx.urgency = 'HIGH'
 
             MERGE (c)-[:HAS_CALL_CONTEXT]->(ctx)
             """
         )
     logger.info(
-        "Neo4j graph seeded with Jack Smith / QF-8200 channel-based context graph"
+        "Neo4j graph seeded with Jack Smith / CommBank Premier account context graph"
     )
 
 
-def _query_customer_context_sync(driver, booking_ref: str) -> Optional[str]:
+def _query_customer_context_sync(driver, customer_id: str) -> Optional[str]:
     """Synchronous graph query — called via asyncio.to_thread.
 
     Args:
         driver: Neo4j driver instance.
-        booking_ref: Customer booking reference to look up.
+        customer_id: Customer ID to look up.
 
     Returns:
         Formatted situation summary string, or None if customer not found.
@@ -191,20 +152,20 @@ def _query_customer_context_sync(driver, booking_ref: str) -> Optional[str]:
     with driver.session() as session:
         result = session.run(
             """
-            MATCH (c:Customer {booking_ref: $ref})
-            OPTIONAL MATCH (c)-[:HAS_CHANNEL]->(:Channel {name: 'CRM'})-[:CONTAINS]->(f:FlightOperation)
-            OPTIONAL MATCH (c)-[:HAS_CHANNEL]->(:Channel {name: 'Baggage Handling'})-[:CONTAINS]->(b:Baggage)
-            OPTIONAL MATCH (c)-[:HAS_CHANNEL]->(:Channel {name: 'CodeShare Flights'})-[:CONTAINS]->(r:Rebooking)
+            MATCH (c:Customer {customer_id: $ref})
+            OPTIONAL MATCH (c)-[:HAS_CHANNEL]->(:Channel {name: 'Accounts'})-[:CONTAINS]->(a)
+            OPTIONAL MATCH (c)-[:HAS_CHANNEL]->(:Channel {name: 'Cards'})-[:CONTAINS]->(card)
             OPTIONAL MATCH (c)-[:HAS_CHANNEL]->(:Channel {name: 'Communications'})-[:CONTAINS]->(comm:Communication)
+            OPTIONAL MATCH (c)-[:HAS_CHANNEL]->(:Channel {name: 'Transactions'})-[:CONTAINS]->(txn:Transaction)
             OPTIONAL MATCH (c)-[:HAS_CALL_CONTEXT]->(ctx:CallContext)
             RETURN c,
-                   collect(DISTINCT f) AS flights,
-                   collect(DISTINCT b) AS baggage,
-                   collect(DISTINCT r) AS rebooking_options,
+                   collect(DISTINCT a) AS accounts,
+                   collect(DISTINCT card) AS cards,
                    collect(DISTINCT comm) AS communications,
+                   collect(DISTINCT txn) AS transactions,
                    ctx
             """,
-            ref=booking_ref,
+            ref=customer_id,
         )
 
         record = result.single()
@@ -212,10 +173,10 @@ def _query_customer_context_sync(driver, booking_ref: str) -> Optional[str]:
             return None
 
         customer = record["c"]
-        flights = record["flights"]
-        baggage = record["baggage"]
-        rebooking_options = record["rebooking_options"]
+        accounts = record["accounts"]
+        cards = record["cards"]
         communications = record["communications"]
+        transactions = record["transactions"]
 
         lines = []
 
@@ -226,8 +187,8 @@ def _query_customer_context_sync(driver, booking_ref: str) -> Optional[str]:
             lines.append("")
             lines.append(f"Primary issue:       {ctx['primary_issue']}")
             lines.append(f"Recommended action:  {ctx['recommended_action']}")
-            lines.append(f"Loyalty flag:        {ctx['loyalty_flag']}")
-            lines.append(f"Baggage status:      {ctx['baggage_status']}")
+            lines.append(f"Tier flag:           {ctx['tier_flag']}")
+            lines.append(f"Card status:         {ctx['card_status']}")
             lines.append(f"Urgency:             {ctx['urgency']}")
             lines.append("")
 
@@ -235,40 +196,68 @@ def _query_customer_context_sync(driver, booking_ref: str) -> Optional[str]:
         lines.append("")
         lines.append(
             f"Customer: {customer['name']}, "
-            f"Booking: {customer['booking_ref']}, "
-            f"Loyalty: {customer['loyalty_tier']}, "
+            f"ID: {customer['customer_id']}, "
+            f"Tier: {customer['tier']}, "
             f"Phone: {customer['phone']}"
         )
 
-        if flights:
+        if accounts:
             lines.append("")
-            lines.append("FLIGHTS:")
-            for f in flights:
-                status = f["status"].upper()
-                reason = f" ({f['reason']})" if f.get("reason") else ""
-                lines.append(
-                    f"  - {f['flight_number']} {f['route']}: "
-                    f"{status}{reason}, scheduled {f['scheduled_time']}"
-                )
+            lines.append("ACCOUNTS:")
+            for a in accounts:
+                acc_type = a.get("card_type") or a.get("account_type") or type(a).__name__
+                status = a.get("status") or "ACTIVE"
+                if "HomeLoan" in a.labels:
+                    payment_status = a.get("payment_status", "OK")
+                    next_payment = a.get("next_payment", "N/A")
+                    due_date = a.get("payment_due", "N/A")
+                    lines.append(
+                        f"  - Home Loan: {a.get('account_number', 'N/A')} | "
+                        f"Status: {status} | Payment: ${next_payment} due {due_date} | "
+                        f"Last payment: {payment_status}"
+                    )
+                elif "Card" in a.labels and "Digital" not in a.labels and "Physical" not in a.labels:
+                    balance = a.get("current_balance", "N/A")
+                    daily_limit = a.get("daily_limit", "N/A")
+                    lines.append(
+                        f"  - {acc_type}: {a.get('card_number', 'N/A')} | "
+                        f"Status: {status} | Balance: ${balance} | Daily limit: ${daily_limit}"
+                    )
 
-        if baggage:
+        if cards:
             lines.append("")
-            lines.append("BAGGAGE:")
-            for b in baggage:
-                lines.append(
-                    f"  - Tag {b['tag']}: destination {b['destination']}, "
-                    f"currently at {b['location']}, status: {b['status']}"
-                )
+            lines.append("CARD REPLACEMENTS:")
+            for card in cards:
+                if "DigitalCard" in card.labels:
+                    status = card.get("status", "UNKNOWN")
+                    issue_date = card.get("issue_date", "N/A")
+                    lines.append(
+                        f"  - Digital Card: {card.get('card_id', 'N/A')} | "
+                        f"Status: {status} | Issued: {issue_date}"
+                    )
+                elif "PhysicalCard" in card.labels:
+                    status = card.get("status", "UNKNOWN")
+                    eta = card.get("delivery_eta", "N/A")
+                    tracking = card.get("tracking_number", "N/A")
+                    lines.append(
+                        f"  - Physical Card: {card.get('card_id', 'N/A')} | "
+                        f"Status: {status} | ETA: {eta} | Tracking: {tracking}"
+                    )
 
-        if rebooking_options:
+        if transactions:
             lines.append("")
-            lines.append("AVAILABLE REBOOKING OPTIONS:")
-            for r in rebooking_options:
-                note = f" ({r['note']})" if r.get("note") else ""
+            lines.append("SUSPICIOUS TRANSACTIONS:")
+            for t in transactions:
+                amount = t.get("amount", 0)
+                currency = t.get("currency", "AUD")
+                merchant = t.get("merchant", "Unknown")
+                location = t.get("location", "Unknown")
+                timestamp = t.get("timestamp", "Unknown")
+                risk = t.get("risk_score", 0)
+                status = t.get("status", "UNKNOWN")
                 lines.append(
-                    f"  - {r['alt_flight']} {r['route']}: "
-                    f"departs {r['departure']}, "
-                    f"{r['seats_available']} {r['cabin']} seat(s) available{note}"
+                    f"  - {currency} {amount:.2f} at {merchant} ({location}) | "
+                    f"Time: {timestamp} | Risk: {risk:.2f} | Status: {status}"
                 )
 
         if communications:
@@ -280,128 +269,64 @@ def _query_customer_context_sync(driver, booking_ref: str) -> Optional[str]:
         return "\n".join(lines)
 
 
-async def query_customer_context(driver, booking_ref: str) -> Optional[str]:
+async def query_customer_context(driver, customer_id: str) -> Optional[str]:
     """Query Neo4j for full customer context, async-safe.
 
     Args:
         driver: Neo4j driver instance.
-        booking_ref: Customer booking reference to look up.
+        customer_id: Customer ID to look up.
 
     Returns:
         Formatted situation summary string, or None if customer not found.
     """
-    return await asyncio.to_thread(_query_customer_context_sync, driver, booking_ref)
+    return await asyncio.to_thread(_query_customer_context_sync, driver, customer_id)
 
 
-def _query_booking_by_name_and_route_sync(
-    driver, customer_name: str, route: str
-) -> Optional[str]:
-    """Find a booking reference by customer name and flight route.
+def _query_customer_by_name_sync(driver, customer_name: str) -> Optional[str]:
+    """Find a customer ID by customer name.
 
     Args:
         driver: Neo4j driver instance.
         customer_name: Full or partial customer name (case-insensitive).
-        route: Flight route like 'SYD-AKL' or city names like 'Sydney Auckland'.
 
     Returns:
-        Booking reference string, or None if not found.
+        Customer ID string, or None if not found.
     """
-    # Normalize route — accept city names or codes
-    city_to_code = {
-        "sydney": "SYD",
-        "auckland": "AKL",
-        "los angeles": "LAX",
-        "melbourne": "MEL",
-        "brisbane": "BNE",
-        "guam": "GUM",
-        "honolulu": "HNL",
-        "san francisco": "SFO",
-    }
-    route_upper = route.upper().strip()
-    route_lower = route.lower().strip()
-
-    # Try to convert city names to codes for matching
-    route_codes = route_upper
-    for city, code in city_to_code.items():
-        route_lower = route_lower.replace(city, code.lower())
-    # Extract just the airport codes (3-letter sequences)
-    import re
-
-    codes = re.findall(r"[A-Z]{3}", route_lower.upper())
-
-    # Also check if the input looks like a flight number (e.g. QF82)
-    flight_num_match = re.match(r"^[A-Z]{1,3}\d+$", route_upper.strip())
-
     with driver.session() as session:
-        if codes:
-            # Match by name + any flight with matching route codes (via CRM channel)
-            route_pattern = "-".join(codes) if len(codes) >= 2 else codes[0]
-            result = session.run(
-                """
-                MATCH (c:Customer)-[:HAS_CHANNEL]->(:Channel {name: 'CRM'})-[:CONTAINS]->(f:FlightOperation)
-                WHERE toLower(c.name) CONTAINS toLower($name)
-                  AND f.route CONTAINS $route_pattern
-                RETURN c.booking_ref AS booking_ref
-                LIMIT 1
-                """,
-                name=customer_name.strip(),
-                route_pattern=route_pattern,
-            )
-        elif flight_num_match:
-            # Match by name + flight number directly (e.g. "QF82") via CRM channel
-            result = session.run(
-                """
-                MATCH (c:Customer)-[:HAS_CHANNEL]->(:Channel {name: 'CRM'})-[:CONTAINS]->(f:FlightOperation)
-                WHERE toLower(c.name) CONTAINS toLower($name)
-                  AND toUpper(f.flight_number) = $flight_num
-                RETURN c.booking_ref AS booking_ref
-                LIMIT 1
-                """,
-                name=customer_name.strip(),
-                flight_num=route_upper.strip(),
-            )
-        else:
-            # Just match by name
-            result = session.run(
-                """
-                MATCH (c:Customer)
-                WHERE toLower(c.name) CONTAINS toLower($name)
-                RETURN c.booking_ref AS booking_ref
-                LIMIT 1
-                """,
-                name=customer_name.strip(),
-            )
-
+        result = session.run(
+            """
+            MATCH (c:Customer)
+            WHERE toLower(c.name) CONTAINS toLower($name)
+            RETURN c.customer_id AS customer_id
+            LIMIT 1
+            """,
+            name=customer_name.strip(),
+        )
         record = result.single()
-        if record and record["booking_ref"]:
-            return record["booking_ref"]
+        if record and record["customer_id"]:
+            return record["customer_id"]
         return None
 
 
-async def query_booking_by_name_and_route(
-    driver, customer_name: str, route: str
-) -> Optional[str]:
-    """Find booking reference by customer name and flight route, async-safe.
+async def query_customer_by_name(driver, customer_name: str) -> Optional[str]:
+    """Find customer ID by customer name, async-safe.
 
     Args:
         driver: Neo4j driver instance.
         customer_name: Full or partial customer name.
-        route: Flight route (codes or city names).
 
     Returns:
-        Booking reference string, or None if not found.
+        Customer ID string, or None if not found.
     """
-    return await asyncio.to_thread(
-        _query_booking_by_name_and_route_sync, driver, customer_name, route
-    )
+    return await asyncio.to_thread(_query_customer_by_name_sync, driver, customer_name)
 
 
-def _query_graph_structure_sync(driver, booking_ref: str) -> Optional[Dict]:
+def _query_graph_structure_sync(driver, customer_id: str) -> Optional[Dict]:
     """Query Neo4j and return graph structure as nodes + edges for visualization.
 
     Args:
         driver: Neo4j driver instance.
-        booking_ref: Customer booking reference to look up.
+        customer_id: Customer ID to look up.
 
     Returns:
         Dict with "nodes" and "edges" lists, or None if customer not found.
@@ -409,7 +334,7 @@ def _query_graph_structure_sync(driver, booking_ref: str) -> Optional[Dict]:
     with driver.session() as session:
         result = session.run(
             """
-            MATCH (c:Customer {booking_ref: $ref})
+            MATCH (c:Customer {customer_id: $ref})
             OPTIONAL MATCH (c)-[hch:HAS_CHANNEL]->(ch:Channel)
             OPTIONAL MATCH (ch)-[:CONTAINS]->(sub)
             OPTIONAL MATCH (c)-[:EXPERIENCED]->(e1:Event)
@@ -419,7 +344,7 @@ def _query_graph_structure_sync(driver, booking_ref: str) -> Optional[Dict]:
                    collect(DISTINCT {ch_name: ch.name, sub: sub, sub_labels: labels(sub)}) AS sub_nodes,
                    collect(DISTINCT echain) AS events
             """,
-            ref=booking_ref,
+            ref=customer_id,
         )
 
         record = result.single()
@@ -429,16 +354,6 @@ def _query_graph_structure_sync(driver, booking_ref: str) -> Optional[Dict]:
         customer = record["c"]
         nodes: List[Dict] = []
         edges: List[Dict] = []
-
-        city_names = {
-            "SYD": "Sydney", "AKL": "Auckland", "LAX": "Los Angeles",
-            "MEL": "Melbourne", "BNE": "Brisbane",
-            "GUM": "Guam", "HNL": "Honolulu", "SFO": "San Francisco",
-        }
-
-        def friendly_route(route: str) -> str:
-            parts = route.split("-")
-            return " to ".join(city_names.get(p, p) for p in parts)
 
         def friendly_time(iso: str) -> str:
             try:
@@ -451,24 +366,24 @@ def _query_graph_structure_sync(driver, booking_ref: str) -> Optional[Dict]:
             except Exception:
                 return iso
 
-        cust_id = f"customer-{customer['booking_ref']}"
+        cust_id = f"customer-{customer['customer_id']}"
         nodes.append({
             "id": cust_id,
             "type": "Customer",
             "label": customer["name"],
             "sublabel": (
-                f"Booking {customer['booking_ref']}"
-                f"  \u00b7  {customer['loyalty_tier']} member"
+                f"ID: {customer['customer_id']} "
+                f"· {customer['tier']} member"
             ),
         })
 
         # Channel hub nodes
-        channel_order = ["CRM", "Communications", "Baggage Handling", "CodeShare Flights"]
+        channel_order = ["Accounts", "Cards", "Communications", "Transactions"]
         channel_source_map = {
-            "CRM": "Salesforce CRM",
-            "Communications": "Qantas Digital Services",
-            "Baggage Handling": "Terminal RFID System",
-            "CodeShare Flights": "Revenue Management",
+            "Accounts": "CommBank Core Banking",
+            "Cards": "CommBank Cards Platform",
+            "Communications": "CommBank Digital Messaging",
+            "Transactions": "CommBank Transaction Monitoring",
         }
         seen_channels: set = set()
         sorted_channels = sorted(
@@ -495,10 +410,9 @@ def _query_graph_structure_sync(driver, booking_ref: str) -> Optional[Dict]:
             edges.append({"source": cust_id, "target": ch_id, "label": source})
 
         # Sub-nodes under each channel
-        # Track seen sub-nodes by id to avoid duplicates from multi-OPTIONAL-MATCH
         seen_sub: set = set()
-        bag_tags_to_flight: Dict[str, str] = {}  # tag -> flight_number for CHECKED_ON edges
-        # Sort sub-nodes so CRM flight comes first (for LAYOUT_MAP slot assignment)
+
+        # Sort sub-nodes so primary account info comes first
         sub_items = [
             item for item in record["sub_nodes"]
             if item["sub"] is not None
@@ -512,54 +426,80 @@ def _query_graph_structure_sync(driver, booking_ref: str) -> Optional[Dict]:
                 continue
 
             # Determine primary label (first non-redundant one)
-            known_types = {
-                "FlightOperation", "CRMRecord", "Communication", "Baggage", "Rebooking"
-            }
-            node_type = next((lbl for lbl in sub_labels if lbl in known_types), None)
+            node_type = next((lbl for lbl in sub_labels if lbl != "Customer"), None)
             if node_type is None:
                 continue
 
             ch_id = f"channel-{ch_name.lower().replace(' ', '-')}"
 
-            if node_type == "FlightOperation":
-                fid = f"flight-{sub['flight_number']}"
-                if fid in seen_sub:
+            if node_type == "Card":
+                nid = f"card-{sub.get('card_number', 'unknown').replace(' ', '_')}"
+                if nid in seen_sub:
                     continue
-                seen_sub.add(fid)
-                status = sub["status"].upper()
-                route = friendly_route(sub["route"])
-                if status == "CANCELLED":
-                    status_text = f"Cancelled \u2014 {sub.get('reason', 'unknown')}"
-                elif status == "DISRUPTED":
-                    status_text = f"Disrupted \u2014 {sub.get('reason', 'missed connection')}"
-                elif status == "OPERATED":
-                    status_text = "Arrived on time"
-                else:
-                    status_text = status
+                seen_sub.add(nid)
+                card_type = sub.get("card_type", "Unknown")
+                status = sub.get("status", "ACTIVE")
+                balance = sub.get("current_balance", 0)
                 nodes.append({
-                    "id": fid,
-                    "type": "FlightOperation",
-                    "label": f"{sub['flight_number']} \u00b7 {route}",
-                    "sublabel": status_text,
-                    "alert": status in ("CANCELLED", "DISRUPTED"),
+                    "id": nid,
+                    "type": "Card",
+                    "label": f"{card_type}",
+                    "sublabel": f"{sub.get('card_number', 'N/A')} · Status: {status} · Balance: ${balance:.2f}",
+                    "alert": status != "ACTIVE",
                 })
-                edges.append({"source": ch_id, "target": fid, "label": "CONTAINS"})
+                edges.append({"source": ch_id, "target": nid, "label": "CONTAINS"})
 
-            elif node_type == "CRMRecord":
-                rid = f"crm-{sub['id']}"
-                if rid in seen_sub:
+            elif node_type == "HomeLoan":
+                nid = f"homeloan-{sub.get('account_number', 'unknown')}"
+                if nid in seen_sub:
                     continue
-                seen_sub.add(rid)
+                seen_sub.add(nid)
+                status = sub.get("status", "ACTIVE")
+                payment = sub.get("next_payment", 0)
+                due = sub.get("payment_due", "N/A")
+                payment_status = sub.get("payment_status", "OK")
+                status_color = "red" if payment_status == "REJECTED" else "green"
                 nodes.append({
-                    "id": rid,
-                    "type": "CRMRecord",
-                    "label": sub["type"],
-                    "sublabel": f"{sub['date']} \u00b7 {sub['description']}",
+                    "id": nid,
+                    "type": "HomeLoan",
+                    "label": f"Home Loan {sub.get('account_number', '')}",
+                    "sublabel": f"Payment: ${payment:.2f} due {due} · Status: {payment_status}",
+                    "alert": payment_status == "REJECTED",
                 })
-                edges.append({"source": ch_id, "target": rid, "label": "CONTAINS"})
+                edges.append({"source": ch_id, "target": nid, "label": "CONTAINS"})
+
+            elif node_type == "DigitalCard":
+                nid = f"digitalcard-{sub.get('card_id', 'unknown')}"
+                if nid in seen_sub:
+                    continue
+                seen_sub.add(nid)
+                status = sub.get("status", "UNKNOWN")
+                issue_date = sub.get("issue_date", "N/A")
+                nodes.append({
+                    "id": nid,
+                    "type": "DigitalCard",
+                    "label": "Digital Card",
+                    "sublabel": f"ID: {sub.get('card_id', 'N/A')} · Status: {status} · Issued: {issue_date}",
+                })
+                edges.append({"source": ch_id, "target": nid, "label": "CONTAINS"})
+
+            elif node_type == "PhysicalCard":
+                nid = f"physicalcard-{sub.get('card_id', 'unknown')}"
+                if nid in seen_sub:
+                    continue
+                seen_sub.add(nid)
+                status = sub.get("status", "UNKNOWN")
+                eta = sub.get("delivery_eta", "N/A")
+                nodes.append({
+                    "id": nid,
+                    "type": "PhysicalCard",
+                    "label": "Physical Card",
+                    "sublabel": f"ETA: {eta} · Status: {status}",
+                })
+                edges.append({"source": ch_id, "target": nid, "label": "CONTAINS"})
 
             elif node_type == "Communication":
-                cid = f"comm-{sub['channel']}"
+                cid = f"comm-{sub['channel'].lower().replace(' ', '_')}-{sub.get('sent_at', '0').replace(':', '')}"
                 if cid in seen_sub:
                     continue
                 seen_sub.add(cid)
@@ -568,58 +508,28 @@ def _query_graph_structure_sync(driver, booking_ref: str) -> Optional[Dict]:
                     "id": cid,
                     "type": "Communication",
                     "label": f"{sub['channel']}",
-                    "sublabel": f"{time_str} \u00b7 {sub['message']}",
+                    "sublabel": f"{time_str} · {sub['message']}",
                 })
                 edges.append({"source": ch_id, "target": cid, "label": "CONTAINS"})
 
-            elif node_type == "Baggage":
-                bid = f"baggage-{sub['tag']}"
-                if bid in seen_sub:
+            elif node_type == "Transaction":
+                tid = f"txn-{sub.get('id', 'unknown')}"
+                if tid in seen_sub:
                     continue
-                seen_sub.add(bid)
-                location = sub["location"]
-                last_scan = sub.get("last_scan", "")
-                status_str = (
-                    f"{location}"
-                    + (f" \u00b7 {last_scan}" if last_scan else "")
-                )
+                seen_sub.add(tid)
+                amount = sub.get("amount", 0)
+                currency = sub.get("currency", "AUD")
+                merchant = sub.get("merchant", "Unknown")
+                location = sub.get("location", "Unknown")
+                status = sub.get("status", "UNKNOWN")
                 nodes.append({
-                    "id": bid,
-                    "type": "Baggage",
-                    "label": f"Bag {sub['tag']}",
-                    "sublabel": status_str,
+                    "id": tid,
+                    "type": "Transaction",
+                    "label": f"{currency} {amount:.2f}",
+                    "sublabel": f"{merchant} ({location}) · {status} · Risk: {sub.get('risk_score', 0):.2f}",
+                    "alert": status == "FLAGGED",
                 })
-                edges.append({"source": ch_id, "target": bid, "label": "CONTAINS"})
-                # Collect for CHECKED_ON edge — we'll resolve flight_number separately
-                bag_tags_to_flight[sub["tag"]] = "QF82"  # known from seed
-
-            elif node_type == "Rebooking":
-                rbid = f"rebooking-{sub['alt_flight']}"
-                if rbid in seen_sub:
-                    continue
-                seen_sub.add(rbid)
-                route = friendly_route(sub["route"])
-                time_str = friendly_time(sub["departure"])
-                seats = sub["seats_available"]
-                seat_word = "seat" if seats == 1 else "seats"
-                note = f" \u00b7 {sub['note']}" if sub.get("note") else ""
-                nodes.append({
-                    "id": rbid,
-                    "type": "Rebooking",
-                    "label": f"{sub['alt_flight']} \u00b7 {route}",
-                    "sublabel": f"{time_str} \u00b7 {seats} {seat_word}{note}",
-                })
-                edges.append({"source": ch_id, "target": rbid, "label": "CONTAINS"})
-
-        # Baggage → FlightOperation edges (CHECKED_ON)
-        for tag, flight_num in bag_tags_to_flight.items():
-            flight_node_id = f"flight-{flight_num}"
-            if flight_node_id in {n["id"] for n in nodes}:
-                edges.append({
-                    "source": f"baggage-{tag}",
-                    "target": flight_node_id,
-                    "label": "Checked on",
-                })
+                edges.append({"source": ch_id, "target": tid, "label": "CONTAINS"})
 
         # Event chain nodes (sorted by timestamp)
         seen_events: set = set()
@@ -648,24 +558,21 @@ def _query_graph_structure_sync(driver, booking_ref: str) -> Optional[Dict]:
         return {"nodes": nodes, "edges": edges}
 
 
-async def query_graph_structure(driver, booking_ref: str) -> Optional[Dict]:
+async def query_graph_structure(driver, customer_id: str) -> Optional[Dict]:
     """Query Neo4j for graph structure (nodes + edges), async-safe.
 
     Args:
         driver: Neo4j driver instance.
-        booking_ref: Customer booking reference to look up.
+        customer_id: Customer ID to look up.
 
     Returns:
         Dict with "nodes" and "edges" lists, or None if customer not found.
     """
-    return await asyncio.to_thread(_query_graph_structure_sync, driver, booking_ref)
+    return await asyncio.to_thread(_query_graph_structure_sync, driver, customer_id)
 
 
 def build_traversal_sequence(graph: Dict) -> List[Dict]:
     """Build an ordered traversal sequence for animating graph exploration.
-
-    The sequence starts at the Customer node, then fans out by relationship type
-    in the order: flights, baggage, rebooking, communications, then CHECKED_ON.
 
     Args:
         graph: Dict with "nodes" and "edges" from query_graph_structure.
@@ -678,9 +585,6 @@ def build_traversal_sequence(graph: Dict) -> List[Dict]:
 
     events: List[Dict] = []
     node_ids = {n["id"] for n in graph["nodes"]}
-    edge_by_label: Dict[str, List[Dict]] = {}
-    for e in graph["edges"]:
-        edge_by_label.setdefault(e["label"], []).append(e)
 
     # Find customer node
     customer_id = None
@@ -694,17 +598,20 @@ def build_traversal_sequence(graph: Dict) -> List[Dict]:
 
     events.append({"type": "activate", "nodeId": customer_id})
 
-    # Traverse in domain order: channels first, then their sub-nodes, then event chain
+    # Traverse in domain order
     traversal_order = [
-        "Salesforce CRM",
-        "Qantas Digital Services",
-        "Terminal RFID System",
-        "Revenue Management",
+        "CommBank Core Banking",
+        "CommBank Cards Platform",
+        "CommBank Digital Messaging",
+        "CommBank Transaction Monitoring",
         "CONTAINS",
-        "Checked on",
         "Experienced",
         "Triggered",
     ]
+
+    edge_by_label: Dict[str, List[Dict]] = {}
+    for e in graph["edges"]:
+        edge_by_label.setdefault(e["label"], []).append(e)
 
     for label in traversal_order:
         for edge in edge_by_label.get(label, []):
@@ -723,9 +630,6 @@ def build_traversal_sequence(graph: Dict) -> List[Dict]:
 def build_keyword_map(graph: Dict) -> Dict[str, str]:
     """Build a keyword-to-nodeId mapping for conversation-aware highlighting.
 
-    Maps words/phrases the LLM is likely to say to the graph node IDs they
-    refer to. Used by the observer to detect which nodes are being discussed.
-
     Args:
         graph: Dict with "nodes" and "edges" from query_graph_structure.
 
@@ -742,11 +646,9 @@ def build_keyword_map(graph: Dict) -> Dict[str, str]:
         ntype = node["type"]
 
         if ntype == "Channel":
-            # Channel hubs are navigational containers — skip keyword mapping
             continue
 
         elif ntype == "Customer":
-            # Match on first name, full name
             name = node.get("label", "")
             if name:
                 mapping[name.lower()] = nid
@@ -754,129 +656,102 @@ def build_keyword_map(graph: Dict) -> Dict[str, str]:
                 if len(first) > 2:
                     mapping[first] = nid
 
-        elif ntype == "CRMRecord":
-            # Match on CRM record type keywords
+        elif ntype == "Card":
             label = node.get("label", "").lower()
             sublabel = node.get("sublabel", "").lower()
-            if "loyalty" in label:
-                mapping["loyalty"] = nid
-                mapping["points"] = nid
-            elif "upgrade" in label:
-                mapping["upgrade"] = nid
-                mapping["business class"] = nid
-            elif "baggage policy" in label:
-                mapping["policy"] = nid
-                mapping["allowance"] = nid
-            # Map date keywords from sublabel
-            for word in sublabel.split():
-                if len(word) > 3 and word.isalpha():
-                    mapping[word] = nid
+            mapping["visa"] = nid
+            mapping["card"] = nid
+            if "platinum" in label or "platinum" in sublabel:
+                mapping["platinum"] = nid
+            if "frozen" in sublabel:
+                mapping["frozen"] = nid
+                mapping["blocked"] = nid
+            if "limit" in sublabel:
+                mapping["limit"] = nid
+                mapping["daily limit"] = nid
 
-        elif ntype == "FlightOperation":
-            # Match on flight number (QF451, QF452) and city names in label
-            label = node.get("label", "")
-            # Extract flight number (first token before the dot-separator)
-            flight_num = label.split("\u00b7")[0].strip() if "\u00b7" in label else label
-            if flight_num:
-                mapping[flight_num.lower()] = nid
-            # Extract city names from label
-            if "\u00b7" in label:
-                route_part = label.split("\u00b7")[1].strip().lower()
-                for city in route_part.replace(" to ", ",").split(","):
-                    city = city.strip()
-                    if len(city) > 3:
-                        mapping[city] = nid
-            # Sublabel keywords
+        elif ntype == "HomeLoan":
+            label = node.get("label", "").lower()
             sublabel = node.get("sublabel", "").lower()
-            if "cancelled" in sublabel or "cancel" in sublabel:
-                mapping["cancelled"] = nid
-                mapping["cancellation"] = nid
-                mapping["canceled"] = nid
-        elif ntype == "Baggage":
-            # Match on "bag", "baggage", "luggage", "suitcase"
-            mapping["baggage"] = nid
-            mapping["luggage"] = nid
-            mapping["suitcase"] = nid
-            # Only map "bag" / "bags" to first baggage node to avoid flicker
-            if "bag" not in mapping:
-                mapping["bag"] = nid
-                mapping["bags"] = nid
+            mapping["home loan"] = nid
+            mapping["mortgage"] = nid
+            if "rejected" in sublabel:
+                mapping["rejected"] = nid
+                mapping["payment failed"] = nid
+                mapping["payment"] = nid
 
-        elif ntype == "Rebooking":
-            # Match on alt flight number and "rebook" keywords
-            label = node.get("label", "")
-            flight_num = label.split("\u00b7")[0].strip() if "\u00b7" in label else label
-            if flight_num:
-                mapping[flight_num.lower()] = nid
-            # General rebooking keywords map to first rebooking node
-            if "rebook" not in mapping:
-                mapping["rebook"] = nid
-                mapping["rebooking"] = nid
-                mapping["rebooked"] = nid
-                mapping["alternative"] = nid
-                mapping["options"] = nid
-                mapping["next flight"] = nid
-                mapping["tomorrow"] = nid
-                mapping["6am"] = nid
-                mapping["06:00"] = nid
-                mapping["morning flight"] = nid
-                mapping["qf83"] = nid
+        elif ntype == "DigitalCard":
+            mapping["digital card"] = nid
+            mapping["digital"] = nid
+            if "active" in node.get("sublabel", "").lower():
+                mapping["activated"] = nid
+
+        elif ntype == "PhysicalCard":
+            mapping["physical card"] = nid
+            mapping["new card"] = nid
+            mapping["replacement"] = nid
+            if "eta" in node.get("sublabel", "").lower():
+                mapping["eta"] = nid
+                mapping["delivery"] = nid
 
         elif ntype == "Communication":
-            # Match on channel name
             label = node.get("label", "").lower()
-            if "hotel" in label:
-                mapping["rydges"] = nid
-                mapping["hotel"] = nid
-                mapping["accommodation"] = nid
-                mapping["overnight"] = nid
-                mapping["room"] = nid
+            sublabel = node.get("sublabel", "").lower()
+            if "push" in label:
+                mapping["push"] = nid
+                mapping["notification"] = nid
+                mapping["app"] = nid
             elif "sms" in label:
                 mapping["sms"] = nid
-                mapping["text message"] = nid
-                mapping["voucher"] = nid
-                mapping["meal"] = nid
-                mapping["fifty"] = nid
-                mapping["$50"] = nid
-            elif "email" in label:
-                mapping["email"] = nid
-            elif "push" in label or "app" in label:
-                mapping["app"] = nid
-                mapping["notification"] = nid
-                mapping["push"] = nid
-            # General comms keywords
-            if "notified" not in mapping:
-                mapping["notified"] = nid
-                mapping["contacted"] = nid
-                mapping["informed"] = nid
+                mapping["text"] = nid
+                mapping["message"] = nid
+            if "london" in sublabel:
+                mapping["london"] = nid
+                mapping["uk"] = nid
+            if "suspicious" in sublabel or "fraud" in sublabel:
+                mapping["suspicious"] = nid
+                mapping["fraud"] = nid
+                mapping["security"] = nid
+
+        elif ntype == "Transaction":
+            label = node.get("label", "").lower()
+            sublabel = node.get("sublabel", "").lower()
+            # Extract amount and merchant
+            if "gbp" in label or "pound" in label:
+                mapping["gbp"] = nid
+                mapping["pounds"] = nid
+            if "850" in label:
+                mapping["850"] = nid
+                mapping["eight hundred fifty"] = nid
+            if "london" in sublabel:
+                mapping["london"] = nid
+            if "electronics" in sublabel:
+                mapping["electronics"] = nid
+                mapping["purchase"] = nid
+            if "flagged" in sublabel or "high risk" in sublabel:
+                mapping["flagged"] = nid
+                mapping["high risk"] = nid
 
         elif ntype == "Event":
-            etype = node.get("label", "").lower()
-            if "cancelled" in etype or "cancellation" in etype:
-                mapping["grounded"] = nid
-                mapping["fault"] = nid
-                mapping["engineering"] = nid
-            elif "intercepted" in etype or "baggage" in etype:
-                mapping["intercepted"] = nid
-                mapping["carousel"] = nid
-                mapping["rfid"] = nid
-            elif "accommodation" in etype or "hotel" in etype:
-                mapping["arranged"] = nid
-                mapping["booked"] = nid
-            elif "notified" in etype or "passenger" in etype:
-                mapping["sent"] = nid
-                mapping["digital"] = nid
+            label = node.get("label", "").lower()
+            sublabel = node.get("sublabel", "").lower()
+            if "suspicious" in label or "transaction" in label:
+                mapping["transaction"] = nid
+                mapping["suspicious"] = nid
+            if "frozen" in label or "frozen" in sublabel:
+                mapping["frozen"] = nid
+                mapping["freeze"] = nid
+            if "payment" in label and "rejected" in label:
+                mapping["rejected"] = nid
+            if "grace" in sublabel:
+                mapping["grace"] = nid
+                mapping["period"] = nid
 
     return mapping
 
 
 def build_path_map(graph: Dict) -> Dict[str, Dict]:
     """Build channel path definitions for sequential graph traversal animation.
-
-    Maps keywords the agent is likely to say when discussing a channel to a
-    ``{steps, color}`` dict consumed by the frontend ``highlightPath`` method.
-    Path keywords take priority over individual ``highlight`` events so the
-    whole channel animates when the agent discusses it broadly.
 
     Args:
         graph: Dict with "nodes" and "edges" from query_graph_structure.
@@ -888,31 +763,29 @@ def build_path_map(graph: Dict) -> Dict[str, Dict]:
     if not graph:
         return {}
 
-    # Colors must match the deployed frontend TYPE_COLORS + channel-key convention
     CHANNEL_COLORS = {
-        "crm": "#fbbf24",
-        "communications": "#f97316",
-        "baggage-handling": "#10b981",
-        "codeshare-flights": "#8b5cf6",
+        "accounts": "#fbbf24",
+        "cards": "#f97316",
+        "communications": "#10b981",
+        "transactions": "#8b5cf6",
     }
 
-    # Keywords that indicate the agent is talking about a whole channel
     CHANNEL_KEYWORDS: Dict[str, List[str]] = {
-        "crm": [
-            "crm", "salesforce", "customer record", "past booking",
-            "your history", "previous interaction",
+        "accounts": [
+            "account", "accounts", "home loan", "mortgage", "payment",
+            "loan", "balance",
+        ],
+        "cards": [
+            "card", "cards", "visa", "digital card", "physical card",
+            "replacement", "new card",
         ],
         "communications": [
-            "communication", "notification", "notified", "we contacted",
-            "we've contacted", "sent you", "reached out",
-            "accommodation", "hotel", "voucher",
+            "communication", "notification", "notified", "push", "sms",
+            "message", "app", "text",
         ],
-        "baggage-handling": [
-            "baggage", "bag", "bags", "luggage", "suitcase",
-        ],
-        "codeshare-flights": [
-            "codeshare", "alternative flight", "flight options",
-            "rebooking options", "available seats", "rebook you",
+        "transactions": [
+            "transaction", "purchase", "merchant", "amount",
+            "suspicious", "fraud", "london",
         ],
     }
 
@@ -924,7 +797,6 @@ def build_path_map(graph: Dict) -> Dict[str, Dict]:
     if not customer_id:
         return {}
 
-    # Build channel → ordered list of sub-node IDs from edges
     channel_children: Dict[str, List[str]] = {}
     for edge in graph.get("edges", []):
         src = edge["source"]
@@ -949,62 +821,58 @@ def build_path_map(graph: Dict) -> Dict[str, Dict]:
     return path_map
 
 
-def _query_baggage_context_sync(driver, booking_ref: str) -> Optional[Dict]:
-    """Query baggage for a booking — returns LLM summary and graph node IDs for highlighting.
+def _query_transaction_context_sync(driver, customer_id: str) -> Optional[Dict]:
+    """Query transactions for a customer.
 
     Args:
         driver: Neo4j driver instance.
-        booking_ref: Customer booking reference.
-
-    Returns:
-        Dict with "summary" (str) and "node_ids" (list[str]), or None if no baggage found.
-    """
-    with driver.session() as session:
-        result = session.run(
-            """
-            MATCH (c:Customer {booking_ref: $ref})
-                  -[:HAS_CHANNEL]->(:Channel {name: 'Baggage Handling'})
-                  -[:CONTAINS]->(b:Baggage)
-            RETURN collect(b) AS bags
-            """,
-            ref=booking_ref,
-        )
-        record = result.single()
-        if not record or not record["bags"]:
-            return None
-
-        bags = record["bags"]
-        count = len(bags)
-        lines = [f"{count} checked bag{'s' if count != 1 else ''}:"]
-        node_ids = []
-        for i, b in enumerate(bags, 1):
-            status = b.get("status", "unknown")
-            location = b.get("location", "unknown location")
-            last_scan = b.get("last_scan", "")
-            if status == "held_secure":
-                status_str = f"held in {location}"
-                if last_scan:
-                    status_str += f" — last RFID scan: {last_scan}"
-            elif status == "transferred":
-                status_str = "auto-transferred to rescheduled flight"
-            else:
-                status_str = status
-            lines.append(
-                f"  Bag {i}: tag {b['tag']}, {b.get('weight_kg', '?')}kg — {status_str}"
-            )
-            node_ids.append(f"baggage-{b['tag']}")
-
-        return {"summary": "\n".join(lines), "node_ids": node_ids}
-
-
-async def query_baggage_context(driver, booking_ref: str) -> Optional[Dict]:
-    """Query baggage for a booking, async-safe.
-
-    Args:
-        driver: Neo4j driver instance.
-        booking_ref: Customer booking reference.
+        customer_id: Customer ID.
 
     Returns:
         Dict with "summary" and "node_ids", or None if not found.
     """
-    return await asyncio.to_thread(_query_baggage_context_sync, driver, booking_ref)
+    with driver.session() as session:
+        result = session.run(
+            """
+            MATCH (c:Customer {customer_id: $ref})
+                  -[:HAS_CHANNEL]->(:Channel {name: 'Transactions'})
+                  -[:CONTAINS]->(t:Transaction)
+            RETURN collect(t) AS transactions
+            """,
+            ref=customer_id,
+        )
+        record = result.single()
+        if not record or not record["transactions"]:
+            return None
+
+        txns = record["transactions"]
+        lines = [f"{len(txns)} flagged transaction(s):"]
+        node_ids = []
+        for i, t in enumerate(txns, 1):
+            amount = t.get("amount", 0)
+            currency = t.get("currency", "AUD")
+            merchant = t.get("merchant", "Unknown")
+            location = t.get("location", "Unknown")
+            timestamp = t.get("timestamp", "Unknown")
+            risk = t.get("risk_score", 0)
+            status = t.get("status", "UNKNOWN")
+            lines.append(
+                f"  Transaction {i}: {currency} {amount:.2f} at {merchant} ({location}) | "
+                f"Time: {timestamp} | Risk Score: {risk:.2f} | Status: {status}"
+            )
+            node_ids.append(f"txn-{t.get('id', 'unknown')}")
+
+        return {"summary": "\n".join(lines), "node_ids": node_ids}
+
+
+async def query_transaction_context(driver, customer_id: str) -> Optional[Dict]:
+    """Query transaction context for a customer, async-safe.
+
+    Args:
+        driver: Neo4j driver instance.
+        customer_id: Customer ID.
+
+    Returns:
+        Dict with "summary" and "node_ids", or None if not found.
+    """
+    return await asyncio.to_thread(_query_transaction_context_sync, driver, customer_id)

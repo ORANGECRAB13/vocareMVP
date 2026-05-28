@@ -42,6 +42,13 @@ dependencies = [
     # Inlined here instead of using a self-referential extra for Poetry compatibility.
     "transformers>=4.48.0,<6",
     "onnxruntime~=1.24.3",
+    "uvicorn>=0.42.0",
+    "fastapi>=0.135.3",
+    "aioice>=0.10.2",
+    "aiortc>=1.14.0",
+    "websockets>=15.0.1",
+    "opencv-python>=4.13.0.92",
+    "neo4j>=6.2.0",
 ]
 
 [project.urls]

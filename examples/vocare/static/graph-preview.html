@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Graph Layout Editor — QF-8200</title>
+  <title>Graph Layout Editor — CommBank Premier</title>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -441,85 +441,79 @@
 
 const GRAPH_DATA = {
   nodes: [
-    { id: 'customer-QF-8200',          type: 'Customer',
-      label: 'Jack Smith', sublabel: 'QF-8200 · Silver member' },
+    { id: 'customer-CUST-10042',          type: 'Customer',
+      label: 'Jack Smith', sublabel: 'CUST-10042 · Premier member' },
 
-    { id: 'channel-crm',               type: 'Channel', label: 'CRM Channel',              sublabel: 'Salesforce CRM' },
-    { id: 'channel-communications',    type: 'Channel', label: 'Communications Channel',   sublabel: 'Qantas Digital Services' },
-    { id: 'channel-baggage-handling',  type: 'Channel', label: 'Baggage Handling Channel', sublabel: 'Terminal RFID System' },
-    { id: 'channel-codeshare-flights', type: 'Channel', label: 'CodeShare Flights Channel',sublabel: 'Revenue Management' },
+    { id: 'channel-accounts',               type: 'Channel', label: 'Accounts Channel',              sublabel: 'CommBank Core Banking' },
+    { id: 'channel-cards',    type: 'Channel', label: 'Cards Channel',   sublabel: 'CommBank Cards Platform' },
+    { id: 'channel-communications',  type: 'Channel', label: 'Communications Channel', sublabel: 'CommBank Digital Messaging' },
+    { id: 'channel-transactions', type: 'Channel', label: 'Transactions Channel',sublabel: 'CommBank Transaction Monitoring' },
 
-    { id: 'flight-QF82',   type: 'FlightOperation',
-      label: 'QF82 · Sydney to Melbourne', sublabel: 'Cancelled — engineering fault', alert: true },
-    { id: 'crm-crm-001',   type: 'CRMRecord', label: 'Loyalty Query',  sublabel: 'Dec 2025 · 12,400 pts' },
-    { id: 'crm-crm-002',   type: 'CRMRecord', label: 'Seat Upgrade',   sublabel: 'Jan 2026 · Business QF1' },
-    { id: 'crm-crm-003',   type: 'CRMRecord', label: 'Baggage Policy', sublabel: 'Mar 2026 · 32 kg approved' },
+    { id: 'card-visa-1234',   type: 'Card',
+      label: 'Visa Platinum · ****1234', sublabel: 'Status: FROZEN · Balance: $4,500', alert: true },
+    { id: 'homeloan-200456789',   type: 'HomeLoan', label: 'Home Loan · 200456789',  sublabel: 'Payment: $2,895 due 2026-05-30 · Status: REJECTED', alert: true },
 
-    { id: 'comm-Email',    type: 'Communication', label: 'Email', sublabel: '10:20 PM · Cancellation notice' },
-    { id: 'comm-SMS',      type: 'Communication', label: 'SMS',   sublabel: '10:46 PM · Hotel voucher + $50' },
-    { id: 'comm-Phone',    type: 'Communication', label: 'Phone', sublabel: '10:50 PM · Outbound, no answer' },
+    { id: 'comm-Push',    type: 'Communication', label: 'Push Notification', sublabel: '10:15 AM · Suspicious transaction detected' },
+    { id: 'comm-SMS',      type: 'Communication', label: 'SMS',   sublabel: '10:16 AM · Card temporarily frozen' },
 
-    { id: 'baggage-QF82001', type: 'Baggage', label: 'Bag QF82001', sublabel: 'Terminal 3 · Carousel 4' },
-    { id: 'baggage-QF82002', type: 'Baggage', label: 'Bag QF82002', sublabel: 'Terminal 3 · Carousel 4' },
+    { id: 'digitalcard-DIGITAL-789456', type: 'DigitalCard', label: 'Digital Card', sublabel: 'Status: PENDING_ACTIVATION' },
+    { id: 'physicalcard-PHYSICAL-123789', type: 'PhysicalCard', label: 'Physical Card', sublabel: 'ETA: 1-2 business days' },
 
-    { id: 'rebooking-QF83',  type: 'Rebooking', label: 'QF83',  sublabel: '6:00 AM · 1 seat' },
-    { id: 'rebooking-VA850', type: 'Rebooking', label: 'VA850', sublabel: '7:30 AM · 3 seats · codeshare' },
-    { id: 'rebooking-QF85',  type: 'Rebooking', label: 'QF85',  sublabel: '9:45 AM · 5 seats' },
+    { id: 'txn-TXN-LONDON-98765', type: 'Transaction', label: '£850.00', sublabel: 'London Electronics Ltd · FLAGGED · Risk: 0.92', alert: true },
 
-    { id: 'event-evt-001', type: 'Event', label: 'Flight Cancelled',       sublabel: 'Engineering fault' },
-    { id: 'event-evt-002', type: 'Event', label: 'Baggage Intercepted',    sublabel: 'Held Terminal 3' },
-    { id: 'event-evt-003', type: 'Event', label: 'Accommodation Arranged', sublabel: 'Rydges Hotel' },
-    { id: 'event-evt-004', type: 'Event', label: 'Passenger Notified',     sublabel: 'SMS + voucher' },
+    { id: 'event-evt-001', type: 'Event', label: 'Suspicious Transaction',       sublabel: 'London merchant flagged as high risk' },
+    { id: 'event-evt-002', type: 'Event', label: 'Card Frozen',    sublabel: 'Visa frozen due to suspicious activity' },
+    { id: 'event-evt-003', type: 'Event', label: 'Payment Rejected', sublabel: 'Home loan payment rejected' },
   ],
   edges: [
-    { source: 'customer-QF-8200', target: 'channel-crm' },
-    { source: 'customer-QF-8200', target: 'channel-communications' },
-    { source: 'customer-QF-8200', target: 'channel-baggage-handling' },
-    { source: 'customer-QF-8200', target: 'channel-codeshare-flights' },
+    { source: 'customer-CUST-10042', target: 'channel-accounts' },
+    { source: 'customer-CUST-10042', target: 'channel-cards' },
+    { source: 'customer-CUST-10042', target: 'channel-communications' },
+    { source: 'customer-CUST-10042', target: 'channel-transactions' },
 
-    { source: 'channel-crm', target: 'flight-QF82' },
-    { source: 'channel-crm', target: 'crm-crm-001' },
-    { source: 'channel-crm', target: 'crm-crm-002' },
-    { source: 'channel-crm', target: 'crm-crm-003' },
+    { source: 'channel-accounts', target: 'card-visa-1234' },
+    { source: 'channel-accounts', target: 'homeloan-200456789' },
 
-    { source: 'channel-communications', target: 'comm-Email' },
+    { source: 'channel-cards', target: 'digitalcard-DIGITAL-789456' },
+    { source: 'channel-cards', target: 'physicalcard-PHYSICAL-123789' },
+
+    { source: 'channel-communications', target: 'comm-Push' },
     { source: 'channel-communications', target: 'comm-SMS' },
-    { source: 'channel-communications', target: 'comm-Phone' },
 
-    { source: 'channel-baggage-handling', target: 'baggage-QF82001' },
-    { source: 'channel-baggage-handling', target: 'baggage-QF82002' },
+    { source: 'channel-transactions', target: 'txn-TXN-LONDON-98765' },
 
-    { source: 'channel-codeshare-flights', target: 'rebooking-QF83' },
-    { source: 'channel-codeshare-flights', target: 'rebooking-VA850' },
-    { source: 'channel-codeshare-flights', target: 'rebooking-QF85' },
+    { source: 'txn-TXN-LONDON-98765', target: 'card-visa-1234' },
 
-    { source: 'baggage-QF82001', target: 'flight-QF82' },
-    { source: 'baggage-QF82002', target: 'flight-QF82' },
-
-    { source: 'customer-QF-8200', target: 'event-evt-001' },
+    { source: 'customer-CUST-10042', target: 'event-evt-001' },
     { source: 'event-evt-001',    target: 'event-evt-002' },
     { source: 'event-evt-002',    target: 'event-evt-003' },
-    { source: 'event-evt-003',    target: 'event-evt-004' },
   ],
 };
 
 // ── Visual config ─────────────────────────────────────────────────────────────
 
 const TYPE_COLORS = {
-  Customer:        { hex: '#f59e0b', rgb: '245,158,11' },
-  Channel:         { hex: '#64748b', rgb: '100,116,139' },
-  FlightOperation: { hex: '#3b82f6', rgb: '59,130,246' },
-  CRMRecord:       { hex: '#fbbf24', rgb: '251,191,36' },
-  Baggage:         { hex: '#10b981', rgb: '16,185,129' },
-  Rebooking:       { hex: '#8b5cf6', rgb: '139,92,246' },
-  Communication:   { hex: '#f97316', rgb: '249,115,22' },
-  Event:           { hex: '#6366f1', rgb: '99,102,241' },
+  Customer:        { hex: '#f59e0b', rgb: '245,158,11' },  // Premium Gold
+  Channel:         { hex: '#64748b', rgb: '100,116,139' }, // Slate Grey
+  Card:            { hex: '#ef4444', rgb: '239,68,68' },   // Coral Red
+  HomeLoan:        { hex: '#ffcc00', rgb: '255,204,0' },   // CommBank Yellow
+  DigitalCard:     { hex: '#06b6d4', rgb: '6,182,212' },  // Electric Cyan
+  PhysicalCard:    { hex: '#06b6d4', rgb: '6,182,212' },  // Electric Cyan
+  Communication:   { hex: '#f97316', rgb: '249,115,22' }, // Bright Orange
+  Transaction:     { hex: '#8b5cf6', rgb: '139,92,246' }, // Royal Indigo
+  Event:           { hex: '#a855f7', rgb: '168,85,247' }, // Vivid Purple
 };
 
 const NODE_ICONS = {
-  Customer: '👤', Channel: '🏢', FlightOperation: '✈️',
-  CRMRecord: '📋', Baggage: '🧳', Rebooking: '🔄',
-  Communication: '✉️', Event: '⚡',
+  Customer:     '\u{1F464}',  // 👤
+  Channel:      '\u{1F3E2}',  // 🏢
+  Card:         '\u{1F4B3}',  // 💳
+  HomeLoan:     '\u{1F3E0}',  // 🏠
+  DigitalCard:  '\u{1F4B3}',  // 💳
+  PhysicalCard: '\u{1F4E6}',  // 📦
+  Communication:'\u{1F514}',  // 🔔
+  Transaction:  '\u{1F4B0}',  // 💰
+  Event:        '\u{1F510}',  // 🔐
 };
 
 // Radius in px (half of node diameter) — used for edge termination
@@ -529,8 +523,8 @@ function nodeRadius(type) { return NODE_RADII[type] || 30; }
 // z values per type (preserved for deployed LAYOUT_MAP, not used for 2D rendering)
 const TYPE_Z = {
   Customer: 0, Channel: -150,
-  FlightOperation: -300, CRMRecord: -300, Communication: -300,
-  Baggage: -300, Rebooking: -300, Event: -450,
+  Card: -300, HomeLoan: -300, DigitalCard: -300, PhysicalCard: -300,
+  Communication: -300, Transaction: -300, Event: -450,
 };
 
 const INITIAL_LAYOUT = {
@@ -541,15 +535,16 @@ const INITIAL_LAYOUT = {
     { xPct: 37.6, yPct: 58.6 },
     { xPct: 62.6, yPct: 58.6 },
   ],
-  FlightOperation: [{ xPct: 8.6,  yPct: 45.0 }],
-  CRMRecord:       [{ xPct: 9.3,  yPct: 24.9 }, { xPct: 17.6, yPct: 16.0 }, { xPct: 28.2, yPct: 10.7 }],
-  Communication:   [{ xPct: 71.1, yPct: 10.9 }, { xPct: 81.9, yPct: 15.7 }, { xPct: 90.5, yPct: 25.5 }],
-  Baggage:         [{ xPct: 6.7,  yPct: 73.8 }, { xPct: 13.5, yPct: 82.8 }],
-  Rebooking:       [{ xPct: 93.8, yPct: 62.9 }, { xPct: 90.3, yPct: 76.9 }, { xPct: 81.8, yPct: 87.2 }],
+  Card: [{ xPct: 8.6,  yPct: 45.0 }],
+  HomeLoan:       [{ xPct: 9.3,  yPct: 24.9 }],
+  DigitalCard:    [{ xPct: 9.3,  yPct: 16.0 }],
+  PhysicalCard:   [{ xPct: 17.6, yPct: 10.7 }],
+  Communication:   [{ xPct: 71.1, yPct: 10.9 }, { xPct: 81.9, yPct: 15.7 }],
+  Transaction:    [{ xPct: 6.7,  yPct: 73.8 }, { xPct: 13.5, yPct: 82.8 }],
   Event:           [{ xPct: 44.3, yPct: 78.5 }, { xPct: 37.7, yPct: 87.8 }, { xPct: 60.1, yPct: 87.4 }, { xPct: 52.7, yPct: 78.5 }],
 };
 
-const TYPE_ORDER = ['Customer','Channel','FlightOperation','CRMRecord','Communication','Baggage','Rebooking','Event'];
+const TYPE_ORDER = ['Customer','Channel','Card','HomeLoan','DigitalCard','PhysicalCard','Communication','Transaction','Event'];
 
 // ── Traversal paths ───────────────────────────────────────────────────────────
 // Each path defines the ordered node sequence and which edges light up.
@@ -558,35 +553,35 @@ const TYPE_ORDER = ['Customer','Channel','FlightOperation','CRMRecord','Communic
 const STEP_MS = 320;
 
 const TRAVERSAL_PATHS = {
-  crm: {
-    label: 'CRM',
-    color: '#fbbf24',
-    steps: ['customer-QF-8200','channel-crm','flight-QF82','crm-crm-001','crm-crm-002','crm-crm-003'],
-    edgeKeys: new Set(['customer-QF-8200::channel-crm','channel-crm::flight-QF82','channel-crm::crm-crm-001','channel-crm::crm-crm-002','channel-crm::crm-crm-003']),
+  accounts: {
+    label: 'Accounts',
+    color: '#ffcc00',
+    steps: ['customer-CUST-10042','channel-accounts','card-visa-1234','homeloan-200456789'],
+    edgeKeys: new Set(['customer-CUST-10042::channel-accounts','channel-accounts::card-visa-1234','channel-accounts::homeloan-200456789']),
   },
-  comms: {
+  cards: {
+    label: 'Cards',
+    color: '#06b6d4',
+    steps: ['customer-CUST-10042','channel-cards','digitalcard-DIGITAL-789456','physicalcard-PHYSICAL-123789'],
+    edgeKeys: new Set(['customer-CUST-10042::channel-cards','channel-cards::digitalcard-DIGITAL-789456','channel-cards::physicalcard-PHYSICAL-123789']),
+  },
+  communications: {
     label: 'Communications',
     color: '#f97316',
-    steps: ['customer-QF-8200','channel-communications','comm-Email','comm-SMS','comm-Phone'],
-    edgeKeys: new Set(['customer-QF-8200::channel-communications','channel-communications::comm-Email','channel-communications::comm-SMS','channel-communications::comm-Phone']),
+    steps: ['customer-CUST-10042','channel-communications','comm-Push','comm-SMS'],
+    edgeKeys: new Set(['customer-CUST-10042::channel-communications','channel-communications::comm-Push','channel-communications::comm-SMS']),
   },
-  baggage: {
-    label: 'Baggage',
-    color: '#10b981',
-    steps: ['customer-QF-8200','channel-baggage-handling','baggage-QF82001','baggage-QF82002'],
-    edgeKeys: new Set(['customer-QF-8200::channel-baggage-handling','channel-baggage-handling::baggage-QF82001','channel-baggage-handling::baggage-QF82002']),
-  },
-  codeshare: {
-    label: 'Flights',
+  transactions: {
+    label: 'Transactions',
     color: '#8b5cf6',
-    steps: ['customer-QF-8200','channel-codeshare-flights','rebooking-QF83','rebooking-VA850','rebooking-QF85'],
-    edgeKeys: new Set(['customer-QF-8200::channel-codeshare-flights','channel-codeshare-flights::rebooking-QF83','channel-codeshare-flights::rebooking-VA850','channel-codeshare-flights::rebooking-QF85']),
+    steps: ['customer-CUST-10042','channel-transactions','txn-TXN-LONDON-98765'],
+    edgeKeys: new Set(['customer-CUST-10042::channel-transactions','channel-transactions::txn-TXN-LONDON-98765']),
   },
   events: {
-    label: 'Event Chain',
-    color: '#6366f1',
-    steps: ['customer-QF-8200','event-evt-001','event-evt-002','event-evt-003','event-evt-004'],
-    edgeKeys: new Set(['customer-QF-8200::event-evt-001','event-evt-001::event-evt-002','event-evt-002::event-evt-003','event-evt-003::event-evt-004']),
+    label: 'Security Milestones',
+    color: '#a855f7',
+    steps: ['customer-CUST-10042','event-evt-001','event-evt-002','event-evt-003'],
+    edgeKeys: new Set(['customer-CUST-10042::event-evt-001','event-evt-001::event-evt-002','event-evt-002::event-evt-003']),
   },
 };
 

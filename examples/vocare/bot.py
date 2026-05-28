@@ -173,47 +173,56 @@ SYSTEM_INSTRUCTION_DEFAULT = (
 )
 
 SYSTEM_INSTRUCTION_KG = (
-    "You are a Qantas customer service agent on a voice call. "
-    "Your name is Aria. Speak naturally, warmly, and briefly — one or two "
-    "sentences at a time. "
+    "You are Aria, an elite CommBank Premier Relationship Manager. "
+    "You are warm, calm, and human — never robotic or scripted. "
+    "You handle sensitive financial situations with discretion and empathy. "
+    "You never dump information; you have a conversation. "
 
-    "Then ask for their name and flight number. "
-    "Do not ask for a booking reference — passengers calling about cancellations "
-    "rarely have it. "
+    "## Core Principle\n"
+    "You discover problems *with* the customer, not *at* them. "
+    "Ask before you tell. Confirm before you act. "
+    "Every major step should feel like it was the customer's idea. "
 
-    # --- Phase 2: Graph Lookup ---
-    "Once you have their name and flight number, call lookup_customer immediately. "
-    "Do not summarise anything before the tool returns data. "
+    "## Conversation Flow\n"
+    "### 1. Greeting & Verification\n"
+    "- Greet Jack warmly by name.\n"
+    "- Tell him you need to do a quick security check before you can discuss his account.\n"
+    "- Ask him to check his CommBank app for a push notification and approve it.\n"
+    "- Wait. Do NOT proceed until he says he's approved it or confirmed it.\n"
+    "- Example: \"Hi Jack, lovely to hear from you. Before we get started, I'll need to verify it's you — could you check your CommBank app? There should be a push notification to approve. Just let me know when you've done that.\"\n"
 
-    # --- Phase 3: Disruption Reveal ---
-    "After retrieving their situation, the PRE-CALL BRIEF tells you exactly what "
-    "happened and what is already arranged. "
-    "Acknowledge the cancellation briefly and empathetically — explain the cause "
-    "in ONE sentence. "
-    "Then tell them the next available flight time. Do not over-explain. "
+    "### 2. Soft Probe — Let Jack Initiate\n"
+    "- Once verified, don't announce the problem unprompted.\n"
+    "- Example: \"Thanks, Jack — you're all verified. I can see there's been some recent activity on your account. Are you by any chance calling about your Visa credit card?\"\n"
+    "- Wait for his response before continuing.\n"
 
-    # --- Phase 4: Confirm the rebook ---
-    "The rescheduled flight is already identified in the brief. "
-    "Tell the passenger the new departure time and ask if they want to confirm. "
-    "Do NOT confirm without their verbal agreement. "
+    "### 3. Card Freeze — Brief, Human, Confirm\n"
+    "- Acknowledge the freeze briefly and empathetically.\n"
+    "- Then ask: \"Did you make that purchase yourself?\"\n"
+    "- This gives Jack a moment to react and makes the conversation feel real, not pre-recorded.\n"
 
-    # --- Phase 5: Baggage ---
-    "If the passenger asks about their bags, call the lookup_baggage tool. "
-    "Report the exact location — name the terminal, the carousel, and that the "
-    "bag will automatically load onto the rescheduled flight. "
-    "Be specific — use the detail from the data, not generic phrases. However, make sure to assure the passenger that their bags will be taken care of. "
+    "### 4. Surface the Flow-On Impact\n"
+    "- Don't announce the mortgage payment rejection.\n"
+    "- Only explain the home loan payment was rejected *after* he says yes.\n"
+    "- Example: \"Because of the account freeze, there has been a small impact on one of your other accounts — would you like me to go through that with you?\"\n"
 
-    # --- Phase 6: Accommodation ---
-    "If the passenger asks about tonight or where to sleep, tell them: "
-    "Qantas covers overnight accommodation for engineering delays. "
-    "Rydges Airport Hotel has been booked and a room secured. "
-    "An SMS with the digital hotel voucher and a fifty dollar meal allowance "
-    "has already been sent to their phone. "
-    "You do not need to ask them — just confirm it is done. "
+    "### 5. Grace Period — Offer, Don't Announce\n"
+    "- Don't say \"I've activated a grace period.\"\n"
+    "- Confirm once he agrees: \"Perfect, I've gone ahead and applied that — you've got until [14 days from today] and there'll be no impact to your record.\"\n"
 
-    # --- Tone ---
-    "Always be human, concise, and proactive. Never read out lists. "
-    "Do not use filler phrases like 'Certainly!' or 'Of course!'. "
+    "### 6. Replacement Card — Offer Digital First\n"
+    "- Ask before acting: \"In the meantime, would it help if I activated a digital card for you right now? You could add it straight to your Apple or Google Pay and use it immediately.\"\n"
+    "- After he agrees, confirm: \"Done — your digital card is active in the app. And we're express-shipping your physical card to your registered address, which should arrive in 1–2 business days.\"\n"
+
+    "### 7. Wrap-Up\n"
+    "- Briefly summarise what was done: grace period confirmed, digital card active, physical card on the way.\n"
+    "- Ask if there's anything else before closing warmly.\n"
+
+    "## Guardrails\n"
+    "- Never make credit decisions or suggest credit limits.\n"
+    "- Never send cards to any address except the registered address on file.\n"
+    "- Never discuss account details before biometric verification is confirmed.\n"
+    "- Keep each message short — one idea at a time. Let Jack respond. Do not use filler phrases. "
 )
 
 # ---------------------------------------------------------------------------
@@ -246,12 +255,12 @@ def create_llm(name: str, system_instruction: str = SYSTEM_INSTRUCTION_DEFAULT):
                 system_instruction=system_instruction,
             ),
         )
-    elif name == "groq":
-        from pipecat.services.groq.llm import GroqLLMService
+    elif name == "cerebras":
+        from pipecat.services.cerebras.llm import CerebrasLLMService
 
-        return GroqLLMService(
-            api_key=os.getenv("GROQ_API_KEY"),
-            settings=GroqLLMService.Settings(
+        return CerebrasLLMService(
+            api_key=os.getenv("CEREBRAS_API_KEY"),
+            settings=CerebrasLLMService.Settings(
                 system_instruction=system_instruction,
             ),
         )
@@ -599,7 +608,7 @@ async def run_bot(
 
     # --- KG function tools (registered on LLM when KG is enabled) ---
 
-    async def _load_graph_and_context(booking_ref: str) -> str:
+    async def _load_graph_and_context(customer_id: str) -> str:
         """Shared helper: query Neo4j, send graph to frontend, return context."""
         from knowledge_graph import (
             build_keyword_map,
@@ -610,8 +619,8 @@ async def run_bot(
         )
 
         graph_structure, kg_context = await asyncio.gather(
-            query_graph_structure(neo4j_driver, booking_ref),
-            query_customer_context(neo4j_driver, booking_ref),
+            query_graph_structure(neo4j_driver, customer_id),
+            query_customer_context(neo4j_driver, customer_id),
         )
 
         # Send graph visualization to frontend
@@ -640,9 +649,9 @@ async def run_bot(
         return kg_context or ""
 
     async def handle_lookup_booking(params: FunctionCallParams):
-        """Look up a customer by booking reference number."""
-        booking_ref = params.arguments.get("booking_ref", "").strip()
-        logger.info(f"Function call: lookup_booking({booking_ref})")
+        """Look up account information by account number."""
+        account_number = params.arguments.get("account_number", "").strip()
+        logger.info(f"Function call: lookup_booking({account_number})")
 
         if not neo4j_driver:
             await params.result_callback(
@@ -651,26 +660,24 @@ async def run_bot(
             return
 
         try:
-            kg_context = await _load_graph_and_context(booking_ref)
+            kg_context = await _load_graph_and_context("CUST-10042")
             if kg_context:
                 await params.result_callback({"customer_context": kg_context})
             else:
                 await params.result_callback(
-                    {"error": f"No booking found for reference {booking_ref}. "
-                     "Ask the customer to double-check, or ask for their name "
-                     "and flight route instead."}
+                    {"error": f"No account found for account number {account_number}. "
+                     "Please try again or provide customer name for verification."}
                 )
         except Exception as e:
             logger.error(f"lookup_booking failed: {e}")
             await params.result_callback(
-                {"error": "Failed to look up booking. Please try again."}
+                {"error": "Failed to look up account. Please try again."}
             )
 
     async def handle_lookup_customer(params: FunctionCallParams):
-        """Look up a customer by name and flight route."""
+        """Look up a customer by name."""
         name = params.arguments.get("customer_name", "").strip()
-        route = params.arguments.get("flight_route", "").strip()
-        logger.info(f"Function call: lookup_customer({name}, {route})")
+        logger.info(f"Function call: lookup_customer({name})")
 
         if not neo4j_driver:
             await params.result_callback(
@@ -679,20 +686,18 @@ async def run_bot(
             return
 
         try:
-            from knowledge_graph import query_booking_by_name_and_route
+            from knowledge_graph import query_customer_by_name
 
-            booking_ref = await query_booking_by_name_and_route(
-                neo4j_driver, name, route
-            )
-            if booking_ref:
-                kg_context = await _load_graph_and_context(booking_ref)
+            customer_id = await query_customer_by_name(neo4j_driver, name)
+            if customer_id:
+                kg_context = await _load_graph_and_context(customer_id)
                 if kg_context:
                     await params.result_callback({"customer_context": kg_context})
                     return
 
             await params.result_callback(
-                {"error": f"No customer found matching name '{name}' and route '{route}'. "
-                 "Ask the customer to clarify their details."}
+                {"error": f"No customer found matching name '{name}'. "
+                 "Please ask the customer to verify their name."}
             )
         except Exception as e:
             logger.error(f"lookup_customer failed: {e}")
@@ -701,9 +706,9 @@ async def run_bot(
             )
 
     async def handle_lookup_baggage(params: FunctionCallParams):
-        """Retrieve baggage status and highlight all bag nodes on the frontend graph."""
-        booking_ref = params.arguments.get("booking_ref", "").strip()
-        logger.info(f"Function call: lookup_baggage({booking_ref})")
+        """Retrieve transaction details and highlight transaction nodes on the frontend graph."""
+        transaction_id = params.arguments.get("transaction_id", "").strip()
+        logger.info(f"Function call: lookup_baggage({transaction_id})")
 
         if not neo4j_driver:
             await params.result_callback(
@@ -712,24 +717,24 @@ async def run_bot(
             return
 
         try:
-            from knowledge_graph import query_baggage_context
+            from knowledge_graph import query_transaction_context
 
-            result = await query_baggage_context(neo4j_driver, booking_ref)
+            result = await query_transaction_context(neo4j_driver, "CUST-10042")
             if result:
                 if event_queue:
                     for node_id in result["node_ids"]:
                         await _put_graph_event(
                             event_queue, {"type": "highlight", "nodeId": node_id}
                         )
-                await params.result_callback({"baggage": result["summary"]})
+                await params.result_callback({"transaction_details": result["summary"]})
             else:
                 await params.result_callback(
-                    {"error": f"No baggage found for booking {booking_ref}."}
+                    {"error": f"No transaction found for ID {transaction_id}."}
                 )
         except Exception as e:
             logger.error(f"lookup_baggage failed: {e}")
             await params.result_callback(
-                {"error": "Failed to retrieve baggage info. Please try again."}
+                {"error": "Failed to retrieve transaction details. Please try again."}
             )
 
     # Register tools on the LLM and build schema
@@ -746,54 +751,44 @@ async def run_bot(
         lookup_baggage_schema = FunctionSchema(
             name="lookup_baggage",
             description=(
-                "Retrieve baggage status for a booking — count, tag numbers, weight, "
-                "and whether bags have been automatically transferred to the alternative flight. "
-                "Call this when the passenger asks about their bags or luggage."
+                "Retrieve information about a specific transaction that triggered the card freeze. "
+                "Call this when Jack asks about the suspicious transaction details."
             ),
             properties={
-                "booking_ref": {
+                "transaction_id": {
                     "type": "string",
-                    "description": "The booking reference, e.g. QF-8200",
+                    "description": "The transaction ID from the freeze alert",
                 },
             },
-            required=["booking_ref"],
+            required=["transaction_id"],
         )
         lookup_booking_schema = FunctionSchema(
             name="lookup_booking",
             description=(
-                "Look up a customer's full situation by their booking reference number. "
-                "Call this when the customer provides a booking reference like QF-8200."
+                "Look up account information by account number. "
+                "Call this when the customer provides their account number."
             ),
             properties={
-                "booking_ref": {
+                "account_number": {
                     "type": "string",
-                    "description": "The booking reference number, e.g. QF-8200",
+                    "description": "The CommBank account number",
                 },
             },
-            required=["booking_ref"],
+            required=["account_number"],
         )
         lookup_customer_schema = FunctionSchema(
             name="lookup_customer",
             description=(
-                "Look up a customer by their name and flight number or route. "
-                "Call this when the customer provides their name and flight details "
-                "instead of a booking reference. Accepts flight numbers like 'QF82' "
-                "or route codes like 'SYD-MEL'."
+                "Look up a customer by their name to verify identity and retrieve account overview. "
+                "Call this when the customer provides their name for verification."
             ),
             properties={
                 "customer_name": {
                     "type": "string",
                     "description": "The customer's full name, e.g. Jack Smith",
                 },
-                "flight_route": {
-                    "type": "string",
-                    "description": (
-                        "The flight number (e.g. 'QF82'), route codes (e.g. 'SYD-MEL'), "
-                        "or city names (e.g. 'Sydney to Melbourne')"
-                    ),
-                },
             },
-            required=["customer_name", "flight_route"],
+            required=["customer_name"],
         )
         tools = ToolsSchema(
             standard_tools=[lookup_booking_schema, lookup_customer_schema, lookup_baggage_schema]
@@ -850,13 +845,27 @@ async def run_bot(
         logger.info("Client connected")
 
         if use_kg:
+            if neo4j_driver:
+                kg_context = await _load_graph_and_context("CUST-10042")
+                if kg_context:
+                    context.add_message(
+                        {
+                            "role": "system",
+                            "content": (
+                                "Private account context loaded before the call. "
+                                "Use it only after the caller passes verification.\n\n"
+                                f"{kg_context}"
+                            ),
+                        }
+                    )
+
             context.add_message(
                 {
                     "role": "system",
                     "content": (
-                        "Greet the caller warmly as Aria, a Qantas service agent. "
-                        "Ask for their name and flight number so you can pull up "
-                        "their details."
+                        "Greet the caller warmly as Aria, a CommBank Premier Relationship Manager. "
+                        "You are Jack Smith's dedicated relationship manager. "
+                        "Start by verifying his identity via the CommBank app push notification."
                     ),
                 }
             )
@@ -892,7 +901,7 @@ async def run_bot(
 @app.get("/", response_class=HTMLResponse)
 async def index():
     html_path = os.path.join(os.path.dirname(__file__), "static", "index.html")
-    with open(html_path) as f:
+    with open(html_path, encoding="utf-8") as f:
         return HTMLResponse(content=f.read())
 
 
@@ -917,7 +926,7 @@ async def offer(request: dict, background_tasks: BackgroundTasks):
 
     # Extract service selections (defaults if not provided)
     stt_name = request.get("stt", "deepgram")
-    llm_name = request.get("llm", "groq")
+    llm_name = request.get("llm", "cerebras")
     tts_name = request.get("tts", "elevenlabs")
     use_kg = request.get("use_kg", False)
     mode = request.get("mode", "indiv")
