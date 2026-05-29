@@ -15,7 +15,10 @@ RUN pip install --no-cache-dir uv \
     python-dotenv \
     loguru \
     cerebras-cloud-sdk \
-    neo4j
+    neo4j \
+    aioice \
+    aiortc \
+    opencv-python-headless
 
 EXPOSE 8080
 

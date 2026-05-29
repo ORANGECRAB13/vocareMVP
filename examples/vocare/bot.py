@@ -13,7 +13,7 @@ import os
 import re
 import sys
 import random
-from datetime import datetime
+from datetime import datetime, timedelta
 from dataclasses import dataclass, field
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -208,10 +208,10 @@ logger.add(sys.stderr, level=_log_level, colorize=True,
 # ---------------------------------------------------------------------------
 
 THINKER_SYSTEM_PROMPT = (
-    "You are an intent/entity extraction engine for a council voice bot. "
+    "You are an intent/entity extraction engine for a premier banking voice bot. "
     "Given the user's speech transcript, output ONLY valid JSON with this schema:\n"
-    '{"intent": "bin_collection | bulky_waste | da_inquiry | general", '
-    '"entities": {"address": "...", "name": "...", "phone": "...", "date": "..."}, '
+    '{"intent": "verification | card_freeze | mortgage_impact | grace_period | replacement_card | general", '
+    '"entities": {"verified": true, "purchase_confirmed": true, "wants_grace_period": true, "wants_digital_card": true}, '
     '"confidence": 0.0-1.0}\n'
     "Rules:\n"
     "- intent: classify the user's primary need\n"
@@ -222,9 +222,9 @@ THINKER_SYSTEM_PROMPT = (
 )
 
 FILLERS = [
-    "Let me look that up for you.",
-    "Just a moment while I check that.",
-    "One moment please.",
+    "I'll just check that securely.",
+    "One moment while I bring that up.",
+    "I'll verify that now.",
 ]
 
 
@@ -402,56 +402,59 @@ class LanguageSwitchProcessor(FrameProcessor):
 
 
 SYSTEM_INSTRUCTION_GRC = (
-    "You are a voice agent for Georges River Council. Your name is Maya. "
-    "You help residents with three services: bin collection day lookups, "
-    "bulky waste collection bookings, and development application inquiries. "
-    "Speak naturally, warmly, and concisely — one or two sentences at a time. "
-    "Never use lists, bullet points, or emojis. "
-    "Do not use filler phrases like 'Certainly!' or 'Of course!'. "
+    "You are Aria, an elite CommBank Premier Relationship Manager. "
+    "You are warm, calm, and human, never robotic or scripted. "
+    "You handle sensitive financial situations with discretion and empathy. "
+    "You never dump information; you have a conversation. "
+    "Keep each message short: one idea at a time. Let Jack respond. "
+    "Do not use lists, bullet points, emojis, or filler phrases like 'certainly' or 'of course'. "
 
-    # --- Service: Bin collection ---
-    "For bin collection day: always call get_bin_collection_day with the resident's "
-    "full street address. Never guess or invent a collection day. "
+    "Core principle: discover problems with the customer, not at them. "
+    "Ask before you tell. Confirm before you act. "
+    "Every major step should feel like it was the customer's idea. "
 
-    # --- Service: Bulky waste ---
-    "For bulky waste booking: call book_bulky_waste once you have the resident's "
-    "full name, phone number, address, and a preferred collection date in YYYY-MM-DD. "
-    "Collect details conversationally — do not ask for all at once. "
-    "To check remaining entitlements, call check_service_status with their phone number. "
-    "To change a booking date, call update_booking_date. "
+    "Conversation flow. "
+    "Step 1, greeting and verification: greet Jack warmly by name. "
+    "Tell him you need to do a quick security check before discussing his account. "
+    "Ask him to check his CommBank app for a push notification and approve it. "
+    "Do not discuss account details, card status, mortgage impact, purchases, or remedies until he says he approved it or confirms it. "
+    "After he confirms approval, call verify_push_approval. "
 
-    # --- Service: Development applications ---
-    "For DA inquiries: answer from the knowledge base below. "
-    "Direct residents to lodge via the NSW Planning Portal only. "
-    "For specific advice, refer them to the Duty Planner on 9330 6400. "
+    "Step 2, soft probe: once verified, do not announce the problem unprompted. "
+    "Say something like: Thanks, Jack, you're all verified. I can see there's been some recent activity on your account. "
+    "Are you by any chance calling about your Visa credit card? Then wait. "
 
-    # --- Tone ---
-    "Always answer only what was asked. Be brief and direct. "
-    "Never invent information not in the knowledge base or tool results. "
+    "Step 3, card freeze: after Jack indicates the Visa card, call access_customer_node for card_freeze. "
+    "Acknowledge the freeze briefly and empathetically. Then ask: Did you make that purchase yourself? "
 
-    # --- Multilingual ---
-    "LANGUAGE RULE (mandatory): match the language of your response to the language "
-    "of the user's most recent message — every single turn, no exceptions. "
-    "If their last message was in English, respond in English. "
-    "If their last message was in Mandarin Chinese, respond in Mandarin Chinese. "
-    "A single English word or sentence from the user means the entire response must be in English. "
-    "Never continue in a previous language if the user has switched. "
+    "Step 4, flow-on impact: do not announce the home loan payment rejection until Jack says yes, he made the purchase. "
+    "After he says yes, call access_customer_node for mortgage_payment. "
+    "Then say there has been a small impact on one of his other accounts and ask if he would like you to go through it. "
 
-    # --- Thinker acceleration ---
+    "Step 5, grace period: offer help. Do not say you have activated a grace period before Jack agrees. "
+    "Only after he agrees, call apply_grace_period. "
+    "Then confirm: Perfect, I've gone ahead and applied that. You've got until the date returned by the tool, "
+    "and there'll be no impact to your record. "
+
+    "Step 6, replacement card: offer digital first. Ask: In the meantime, would it help if I activated a digital card for you right now? "
+    "Mention that he could add it to Apple Pay or Google Pay and use it immediately. "
+    "Only after he agrees, call activate_digital_card. "
+    "Then confirm the digital card is active in the app and the physical card is express-shipping to his registered address. "
+
+    "Step 7, wrap-up: briefly summarise what was done: grace period confirmed, digital card active, physical card on the way. "
+    "Ask if there's anything else before closing warmly. "
+
+    "Guardrails: never make credit decisions or suggest credit limits. "
+    "Never send cards to any address except the registered address on file. "
+    "Never discuss account details before biometric verification is confirmed. "
+    "Never claim irreversible financial action unless the matching tool result confirms it. "
+
+    "LANGUAGE RULE: match the language of the user's most recent message. "
+    "For this demo, Jack is expected to speak English, so use natural Australian English unless he switches language. "
+
     "You may receive a [THINKER_STATE] system message with pre-extracted intent and entities. "
-    "When present, use it to respond faster: "
-    "if intent is bin_collection and address is present, call get_bin_collection_day immediately. "
-    "If intent is bulky_waste and all four fields (name, phone, address, date) are present, "
-    "call book_bulky_waste immediately. "
-    "If entities are partially present, confirm only the missing ones. "
-    "If no THINKER_STATE is present, proceed as normal. "
-
-    "\n\n"
-    + BULKY_WASTE_KNOWLEDGE
-    + "\n\n"
-    + DA_KNOWLEDGE
+    "Use it only to respond faster while still following the verification and ask-before-act rules. "
 )
-
 # ---------------------------------------------------------------------------
 # Service factory functions
 # ---------------------------------------------------------------------------
@@ -674,6 +677,111 @@ app = FastAPI(lifespan=lifespan)
 app.mount("/static", StaticFiles(directory=str(Path(__file__).parent / "static")), name="static")
 
 
+def _graph_node(node_id: str, label: str, primary_label: str, labels: list[str], properties: dict) -> dict:
+    return {
+        "id": node_id,
+        "label": label,
+        "primaryLabel": primary_label,
+        "labels": labels,
+        "properties": properties,
+    }
+
+
+def _graph_link(source: str, target: str, rel_type: str, properties: dict) -> dict:
+    return {
+        "source": source,
+        "target": target,
+        "type": rel_type,
+        "properties": properties,
+    }
+
+
+def _mock_visualization_graph(limit: int) -> dict:
+    """Returns the local CommBank context graph used by the 3D frontend."""
+    nodes = [
+        _graph_node("customer:jack", "Jack Thompson", "Customer", ["Customer", "Premier"], {"cif": "CBA-PRM-882914", "segment": "Premier Banking", "relationshipSince": "2016-04-18", "currentIntent": "Calling about Visa card disruption"}),
+        _graph_node("identity:biometric", "Biometric Push", "Identity", ["Identity", "SecurityControl"], {"method": "CommBank app biometric approval", "status": "Approved", "approvedAt": "Today 10:14:22 AEST", "confidence": "99.6%"}),
+        _graph_node("identity:biometric:confidence", "Biometric Confidence", "Evidence", ["Evidence", "VerificationDetail"], {"score": "99.6%", "threshold": "95%", "decision": "Pass"}),
+        _graph_node("identity:biometric:timestamp", "Approval Timestamp", "Evidence", ["Evidence", "VerificationDetail"], {"approvedAt": "Today 10:14:22 AEST", "freshness": "Current call", "expiry": "Single session"}),
+        _graph_node("identity:kyc", "KYC Profile", "Identity", ["Identity", "KYC"], {"status": "Current", "lastReviewed": "2026-02-11", "politicallyExposed": "No", "riskTier": "Low"}),
+        _graph_node("identity:passport", "Passport Record", "Identity", ["Identity", "Document"], {"documentType": "Passport", "verification": "Matched on file", "expiry": "2029-08-03"}),
+        _graph_node("contact:mobile", "Mobile Number", "Contact", ["Contact", "PersonalInfo"], {"mobile": "+61 4XX XXX 228", "verified": "Yes", "preferredOtpChannel": "App push"}),
+        _graph_node("contact:mobile:push-channel", "Push Channel", "Evidence", ["Evidence", "ContactDetail"], {"channel": "CommBank app push", "preferred": "Yes", "smsFallback": "Disabled for this action"}),
+        _graph_node("contact:email", "Email", "Contact", ["Contact", "PersonalInfo"], {"email": "jack.thompson@example.com", "verified": "Yes", "statementDelivery": "Digital"}),
+        _graph_node("address:registered", "Registered Address", "Address", ["Address", "PersonalInfo"], {"address": "Registered address on file", "usage": "Card fulfilment only", "changeHold": "No new address accepted during card replacement"}),
+        _graph_node("device:iphone", "Trusted iPhone", "Device", ["Device", "Security"], {"device": "iPhone 15 Pro", "appVersion": "5.34.1", "lastSeen": "Today 10:14 AEST", "trustScore": "Strong"}),
+        _graph_node("device:iphone:trust-score", "Device Trust Score", "Evidence", ["Evidence", "DeviceDetail"], {"trustScore": "Strong", "deviceBinding": "Stable", "recentRisk": "None"}),
+        _graph_node("profile:premier", "Premier Relationship", "Preference", ["Preference", "Relationship"], {"rm": "Aria", "contactStyle": "Short conversational steps", "sensitivity": "Financial hardship and credit-record impact"}),
+        _graph_node("account:everyday", "Everyday Account", "Account", ["Account"], {"bsb": "062-000", "maskedAccount": "xxxx-0381", "status": "Open", "balanceBand": "Healthy"}),
+        _graph_node("account:offset", "Offset Account", "Account", ["Account"], {"maskedAccount": "xxxx-7720", "linkedLoan": "Home loan HL-2041", "status": "Restricted by card freeze workflow"}),
+        _graph_node("card:visa4481", "Awards Visa 4481", "Card", ["Card"], {"product": "CommBank Awards Visa", "lastFour": "4481", "status": "Temporarily frozen", "reason": "Unusual transaction sequence"}),
+        _graph_node("card:visa4481:status", "Freeze Status", "Evidence", ["Evidence", "CardDetail"], {"status": "Temporarily frozen", "actionSource": "Automated risk control", "reversible": "Yes"}),
+        _graph_node("txn:electronics", "Electronics Purchase", "Transaction", ["Transaction"], {"amount": "$1,842.77", "merchant": "Electronics retailer", "timestamp": "Today 09:42 AEST", "customerConfirmed": "Pending conversation"}),
+        _graph_node("txn:electronics:merchant", "Merchant Detail", "Evidence", ["Evidence", "TransactionDetail"], {"merchant": "Electronics retailer", "category": "Consumer electronics", "amount": "$1,842.77"}),
+        _graph_node("risk:freeze", "Freeze Decision", "RiskSignal", ["RiskSignal"], {"model": "Card anomaly monitor", "confidence": "83%", "action": "Temporary freeze", "customerImpact": "Linked payment disruption"}),
+        _graph_node("risk:freeze:reason", "Freeze Reason", "Evidence", ["Evidence", "RiskDetail"], {"reason": "Merchant anomaly + purchase size", "modelConfidence": "83%", "humanReview": "Not required if customer confirms"}),
+        _graph_node("risk:fraud-case", "Fraud Review", "RiskSignal", ["RiskSignal", "Case"], {"status": "Not escalated", "reason": "Customer confirmation can resolve", "sla": "Same call"}),
+        _graph_node("loan:home", "Home Loan", "Loan", ["Loan"], {"loanId": "HL-2041", "repaymentFrequency": "Monthly", "repaymentSource": "Offset account", "hardshipFlag": "No"}),
+        _graph_node("payment:home-loan", "Home Loan Payment", "Payment", ["Payment"], {"scheduledAmount": "$4,280.00", "status": "Rejected", "rejectionReason": "Linked account restriction", "recordImpact": "Avoidable with grace period"}),
+        _graph_node("payment:home-loan:record-impact", "Record Impact", "Evidence", ["Evidence", "PaymentDetail"], {"impact": "Preventable", "condition": "Grace period applied within 14 days", "reportingStatus": "No record impact yet"}),
+        _graph_node("case:incident", "Premier Care Case", "Case", ["Case"], {"caseType": "Card freeze flow-on impact", "priority": "Premier", "owner": "Aria", "nextBestAction": "Verify, confirm purchase, offer grace period"}),
+        _graph_node("consent:grace", "Grace Consent", "Consent", ["Consent"], {"required": "Yes", "capture": "Voice confirmation", "state": "Not yet captured"}),
+        _graph_node("remediation:grace", "Grace Period", "Remediation", ["Remediation"], {"status": "Available after consent", "duration": "14 days", "creditRecordImpact": "None when applied in window"}),
+        _graph_node("remediation:grace:expiry", "Grace Expiry", "Evidence", ["Evidence", "RemediationDetail"], {"duration": "14 days", "expiry": "14 days from today", "recordImpact": "None in window"}),
+        _graph_node("consent:digital-card", "Digital Card Consent", "Consent", ["Consent"], {"required": "Yes", "capture": "Voice confirmation", "state": "Not yet captured"}),
+        _graph_node("card:digital", "Digital Card", "Card", ["Card", "Remediation"], {"status": "Ready to activate", "walletSupport": "Apple Pay, Google Pay", "availability": "Immediate after consent"}),
+        _graph_node("card:digital:wallets", "Wallet Rails", "Evidence", ["Evidence", "CardDetail"], {"supportedWallets": "Apple Pay, Google Pay", "availability": "Immediate", "requiresConsent": "Yes"}),
+        _graph_node("fulfilment:physical-card", "Physical Card Shipment", "Remediation", ["Remediation", "Fulfilment"], {"method": "Express post", "eta": "1-2 business days", "destination": "Registered address only"}),
+        _graph_node("preference:wallet", "Wallet Preference", "Preference", ["Preference"], {"preferredWallet": "Apple Pay", "previousDigitalUse": "Frequent", "cardReplacementFit": "High"}),
+    ]
+    links = [
+        _graph_link("customer:jack", "identity:biometric", "VERIFIED_BY", {"recency": "current call", "confidence": "99.6%"}),
+        _graph_link("identity:biometric", "identity:biometric:confidence", "HAS_DETAIL", {"field": "confidence"}),
+        _graph_link("identity:biometric:confidence", "identity:biometric:timestamp", "VALIDATED_AT", {"field": "timestamp"}),
+        _graph_link("identity:biometric", "identity:kyc", "UNLOCKS_PROFILE", {"reason": "verification complete"}),
+        _graph_link("identity:kyc", "identity:passport", "MATCHES_DOCUMENT", {"verification": "file match"}),
+        _graph_link("identity:passport", "contact:mobile", "SUPPORTS_CONTACT", {"status": "trusted"}),
+        _graph_link("contact:mobile", "contact:mobile:push-channel", "USES_CHANNEL", {"preferred": "true"}),
+        _graph_link("contact:mobile", "contact:email", "BELONGS_TO_CUSTOMER", {"verified": "true"}),
+        _graph_link("contact:email", "device:iphone", "BOUND_TO_DEVICE", {"appInstall": "current"}),
+        _graph_link("device:iphone", "device:iphone:trust-score", "HAS_TRUST_SCORE", {"result": "strong"}),
+        _graph_link("device:iphone", "address:registered", "CONFIRMS_PROFILE", {"trustScore": "strong"}),
+        _graph_link("address:registered", "profile:premier", "REGISTERED_FOR", {"fulfilmentLocked": "true"}),
+        _graph_link("profile:premier", "card:visa4481", "PRIORITISES_CARD_CASE", {"tier": "Premier"}),
+        _graph_link("card:visa4481", "card:visa4481:status", "HAS_STATUS", {"status": "frozen"}),
+        _graph_link("card:visa4481", "txn:electronics", "AUTHORISED_TRANSACTION", {"amount": "$1,842.77"}),
+        _graph_link("txn:electronics", "txn:electronics:merchant", "HAS_MERCHANT_DETAIL", {"merchantCategory": "electronics"}),
+        _graph_link("txn:electronics", "risk:freeze", "TRIGGERED_SIGNAL", {"signal": "velocity + merchant anomaly"}),
+        _graph_link("risk:freeze", "risk:freeze:reason", "HAS_REASON", {"reason": "merchant anomaly"}),
+        _graph_link("risk:freeze", "risk:fraud-case", "OPENED_REVIEW", {"severity": "medium"}),
+        _graph_link("risk:fraud-case", "account:offset", "IMPACTS_LINKED_ACCOUNT", {"flowOnImpact": "true"}),
+        _graph_link("account:offset", "loan:home", "OFFSETS_LOAN", {"loanId": "HL-2041"}),
+        _graph_link("loan:home", "payment:home-loan", "HAS_REPAYMENT", {"frequency": "monthly"}),
+        _graph_link("payment:home-loan", "payment:home-loan:record-impact", "HAS_IMPACT_STATUS", {"status": "preventable"}),
+        _graph_link("payment:home-loan", "case:incident", "CREATED_CASE", {"priority": "Premier"}),
+        _graph_link("case:incident", "consent:grace", "REQUIRES_CONSENT", {"channel": "voice"}),
+        _graph_link("consent:grace", "remediation:grace", "ENABLES", {"duration": "14 days"}),
+        _graph_link("remediation:grace", "remediation:grace:expiry", "HAS_EXPIRY", {"duration": "14 days"}),
+        _graph_link("remediation:grace", "consent:digital-card", "NEXT_ACTION", {"digitalFirst": "true"}),
+        _graph_link("consent:digital-card", "card:digital", "ENABLES_ACTIVATION", {"walletSupport": "Apple Pay, Google Pay"}),
+        _graph_link("card:digital", "card:digital:wallets", "HAS_WALLET_RAILS", {"wallets": "Apple Pay, Google Pay"}),
+        _graph_link("card:digital", "fulfilment:physical-card", "PAIRS_WITH_SHIPMENT", {"eta": "1-2 business days"}),
+        _graph_link("fulfilment:physical-card", "address:registered", "SHIPS_ONLY_TO", {"guardrail": "registered address only"}),
+        _graph_link("card:digital", "preference:wallet", "MATCHES_PREFERENCE", {"fit": "high"}),
+        _graph_link("customer:jack", "account:everyday", "OWNS_ACCOUNT", {"role": "primary"}),
+    ]
+    bounded_limit = max(1, min(limit, 10000))
+    return {
+        "nodes": nodes[:bounded_limit],
+        "links": links[:bounded_limit],
+        "summary": {
+            "source": "local-mock",
+            "nodeCount": min(len(nodes), bounded_limit),
+            "relationshipCount": min(len(links), bounded_limit),
+        },
+    }
+
+
 async def _put_graph_event(event_queue: asyncio.Queue, event: dict):
     """Put an event into the session queue.
 
@@ -682,6 +790,40 @@ async def _put_graph_event(event_queue: asyncio.Queue, event: dict):
     await event_queue.put(event)
     if demo_pc_id is not None:
         demo_events.append(event)
+
+
+async def _cleanup_webrtc_session(pc_id: str, reason: str = "cleanup", disconnect: bool = True) -> bool:
+    """Disconnect a WebRTC session and clear all page-visible session state."""
+    global demo_pc_id
+
+    connection = pcs_map.pop(pc_id, None)
+    queue = graph_event_queues.pop(pc_id, None)
+    if queue:
+        await queue.put(None)
+
+    if demo_pc_id == pc_id:
+        demo_pc_id = None
+        logger.info(f"Demo presenter cleared during {reason}")
+
+    session_id = pc_to_translation.pop(pc_id, None)
+    if session_id:
+        session = translation_sessions.get(session_id)
+        if session:
+            session.participants.pop(pc_id, None)
+            if not session.participants and session.status != "ended":
+                session.status = "ended"
+                session.ended_at = datetime.now()
+                await session.event_queue.put({"type": "status", "status": "ended"})
+
+    if not connection or not disconnect:
+        return False
+
+    try:
+        logger.info(f"Disconnecting WebRTC session {pc_id} ({reason})")
+        await connection.disconnect()
+    except Exception as e:
+        logger.warning(f"Failed to disconnect WebRTC session {pc_id}: {e}")
+    return True
 
 
 # ---------------------------------------------------------------------------
@@ -923,129 +1065,125 @@ async def run_bot(
         transcript_observer = TranscriptionObserver(event_queue)
         observers.append(transcript_observer)
 
-    async def handle_book_bulky_waste(params: FunctionCallParams):
-        name = params.arguments.get("name", "").strip()
-        phone = params.arguments.get("phone", "").strip()
-        address = params.arguments.get("address", "").strip()
-        preferred_date = params.arguments.get("preferred_date", "").strip()
-        logger.info(f"Function call: book_bulky_waste({name}, {phone})")
-        try:
-            result = book_bulky_waste(
-                {"name": name, "phone": phone, "address": address, "preferred_date": preferred_date}
-            )
-            await params.result_callback({"result": result})
-        except Exception as e:
-            logger.error(f"book_bulky_waste failed: {e}")
-            await params.result_callback({"error": "Failed to book collection. Please try again."})
+    async def emit_customer_node(node_id: str, label: str, records: dict):
+        if event_queue:
+            await _put_graph_event(event_queue, {
+                "type": "node_access",
+                "node_id": node_id,
+                "label": label,
+                "records": records,
+                "ts": datetime.now().isoformat(),
+            })
 
-    async def handle_check_service_status(params: FunctionCallParams):
-        phone = params.arguments.get("phone", "").strip()
-        logger.info(f"Function call: check_service_status({phone})")
-        try:
-            result = check_service_status({"phone": phone})
-            await params.result_callback({"result": result})
-        except Exception as e:
-            logger.error(f"check_service_status failed: {e}")
-            await params.result_callback({"error": "Failed to check status. Please try again."})
+    async def handle_verify_push_approval(params: FunctionCallParams):
+        logger.info("Function call: verify_push_approval(Jack)")
+        result = {
+            "customer": "Jack Thompson",
+            "verification": "CommBank app biometric push approved",
+            "risk": "Low",
+            "verified_at": datetime.now().isoformat(timespec="seconds"),
+        }
+        await emit_customer_node("identity", "Identity verification", result)
+        await params.result_callback({"result": result})
 
-    async def handle_update_booking_date(params: FunctionCallParams):
-        phone = params.arguments.get("phone", "").strip()
-        name = params.arguments.get("name", "").strip()
-        new_date = params.arguments.get("new_date", "").strip()
-        logger.info(f"Function call: update_booking_date({phone})")
-        try:
-            result = update_booking_date({"phone": phone, "name": name, "new_date": new_date})
-            await params.result_callback({"result": result})
-        except Exception as e:
-            logger.error(f"update_booking_date failed: {e}")
-            await params.result_callback({"error": "Failed to update booking. Please try again."})
+    async def handle_access_customer_node(params: FunctionCallParams):
+        node_id = params.arguments.get("node_id", "profile").strip()
+        nodes = {
+            "profile": {
+                "customer": "Jack Thompson",
+                "segment": "Premier",
+                "relationship_since": "2016",
+                "registered_address": "Registered address on file",
+            },
+            "card_freeze": {
+                "card": "CommBank Awards Visa ending 4481",
+                "status": "Temporarily frozen",
+                "trigger": "Unusual purchase pattern",
+                "purchase": "$1,842.77 electronics transaction",
+                "timestamp": "Today 09:42 AEST",
+            },
+            "mortgage_payment": {
+                "account": "Home loan offset sweep",
+                "scheduled_payment": "$4,280.00",
+                "status": "Rejected due to linked account freeze",
+                "record_impact": "Preventable within grace window",
+            },
+            "replacement_card": {
+                "digital_card": "Available immediately after activation",
+                "physical_card": "Express shipping, 1-2 business days",
+                "shipping_rule": "Registered address only",
+            },
+        }
+        result = nodes.get(node_id, nodes["profile"])
+        logger.info(f"Function call: access_customer_node({node_id})")
+        await emit_customer_node(node_id, node_id.replace("_", " ").title(), result)
+        await params.result_callback({"result": result})
 
-    async def handle_get_bin_collection_day(params: FunctionCallParams):
-        address = params.arguments.get("address", "").strip()
-        logger.info(f"Function call: get_bin_collection_day({address})")
-        try:
-            result = await asyncio.to_thread(get_bin_collection_zone, {"address": address})
-            await params.result_callback({"result": result})
-        except Exception as e:
-            logger.error(f"get_bin_collection_day failed: {e}")
-            await params.result_callback(
-                {"error": "I couldn't look up the bin collection day. Please try again."}
-            )
+    async def handle_apply_grace_period(params: FunctionCallParams):
+        due_date = (datetime.now() + timedelta(days=14)).strftime("%d %B %Y")
+        result = {
+            "grace_period": "Applied",
+            "expires": due_date,
+            "credit_record_impact": "None if resolved within window",
+            "reason": "Card freeze flow-on protection",
+        }
+        logger.info("Function call: apply_grace_period()")
+        await emit_customer_node("grace_period", "Grace period", result)
+        await params.result_callback({"result": result})
 
-    # Register GRC tools on the LLM and build schema
-    llm.register_function("book_bulky_waste", handle_book_bulky_waste)
-    llm.register_function("check_service_status", handle_check_service_status)
-    llm.register_function("update_booking_date", handle_update_booking_date)
-    llm.register_function("get_bin_collection_day", handle_get_bin_collection_day)
+    async def handle_activate_digital_card(params: FunctionCallParams):
+        result = {
+            "digital_card": "Active in CommBank app",
+            "wallets": "Apple Pay and Google Pay ready",
+            "physical_card": "Express-shipped to registered address",
+            "eta": "1-2 business days",
+        }
+        logger.info("Function call: activate_digital_card()")
+        await emit_customer_node("replacement_card", "Replacement card", result)
+        await params.result_callback({"result": result})
 
-    book_bulky_waste_schema = FunctionSchema(
-        name="book_bulky_waste",
-        description=(
-            "Book a Bulky Waste Collection for a resident. "
-            "Call once you have their full name, phone number, address, "
-            "and preferred collection date."
-        ),
+    llm.register_function("verify_push_approval", handle_verify_push_approval)
+    llm.register_function("access_customer_node", handle_access_customer_node)
+    llm.register_function("apply_grace_period", handle_apply_grace_period)
+    llm.register_function("activate_digital_card", handle_activate_digital_card)
+
+    verify_push_schema = FunctionSchema(
+        name="verify_push_approval",
+        description="Confirm Jack has approved the CommBank app biometric push before any account details are discussed.",
+        properties={},
+        required=[],
+    )
+    access_customer_node_schema = FunctionSchema(
+        name="access_customer_node",
+        description="Access one mock customer-information graph node after Jack has been verified and the conversation flow allows it.",
         properties={
-            "name": {"type": "string", "description": "Resident's full name"},
-            "phone": {"type": "string", "description": "Resident's phone number"},
-            "address": {"type": "string", "description": "Full property address"},
-            "preferred_date": {
+            "node_id": {
                 "type": "string",
-                "description": "Preferred collection date in YYYY-MM-DD format",
+                "description": "One of: profile, card_freeze, mortgage_payment, replacement_card",
             },
         },
-        required=["name", "phone", "address", "preferred_date"],
+        required=["node_id"],
     )
-    check_service_status_schema = FunctionSchema(
-        name="check_service_status",
-        description=(
-            "Check how many bulky waste collections a resident has remaining this year. "
-            "Call when a resident asks about their entitlements or remaining bookings."
-        ),
-        properties={
-            "phone": {"type": "string", "description": "Resident's phone number"},
-        },
-        required=["phone"],
+    apply_grace_period_schema = FunctionSchema(
+        name="apply_grace_period",
+        description="Apply a 14-day grace period after Jack agrees to the offer.",
+        properties={},
+        required=[],
     )
-    update_booking_date_schema = FunctionSchema(
-        name="update_booking_date",
-        description=(
-            "Change the date of an existing bulky waste booking. "
-            "Call when a resident wants to reschedule their collection."
-        ),
-        properties={
-            "phone": {"type": "string", "description": "Resident's phone number"},
-            "name": {"type": "string", "description": "Resident's full name"},
-            "new_date": {
-                "type": "string",
-                "description": "New preferred date in YYYY-MM-DD format",
-            },
-        },
-        required=["phone", "name", "new_date"],
-    )
-    get_bin_collection_day_schema = FunctionSchema(
-        name="get_bin_collection_day",
-        description=(
-            "Look up the bin collection day for a resident's address. "
-            "Call when a resident asks what day their bins are collected."
-        ),
-        properties={
-            "address": {
-                "type": "string",
-                "description": "Full street address within the Georges River LGA",
-            },
-        },
-        required=["address"],
+    activate_digital_card_schema = FunctionSchema(
+        name="activate_digital_card",
+        description="Activate Jack's replacement digital card after he agrees. Physical card remains registered-address only.",
+        properties={},
+        required=[],
     )
     tools = ToolsSchema(
         standard_tools=[
-            book_bulky_waste_schema,
-            check_service_status_schema,
-            update_booking_date_schema,
-            get_bin_collection_day_schema,
+            verify_push_schema,
+            access_customer_node_schema,
+            apply_grace_period_schema,
+            activate_digital_card_schema,
         ]
     )
-
     context = LLMContext(tools=tools)
     user_aggregator, assistant_aggregator = LLMContextAggregatorPair(
         context,
@@ -1087,22 +1225,18 @@ async def run_bot(
             "role": "system",
             "content": (
                 "Greet the caller with: "
-                "'Hi, I'm Maya from Georges River Council — how can I help you today?'"
+                "'Hi Jack, lovely to hear from you. Before we get started, I'll need to verify it's you. "
+                "Could you check your CommBank app? There should be a push notification to approve. "
+                "Just let me know when you've done that.'"
             ),
         })
         await task.queue_frames([LLMRunFrame()])
 
     @transport.event_handler("on_client_disconnected")
     async def on_client_disconnected(transport, client):
-        global demo_pc_id
         logger.info("Client disconnected")
         pc_id = webrtc_connection.pc_id
-        queue = graph_event_queues.pop(pc_id, None)
-        if queue:
-            await queue.put(None)  # Signal SSE to close
-        if demo_pc_id == pc_id:
-            demo_pc_id = None
-            logger.info("Demo presenter disconnected — demo session ended")
+        await _cleanup_webrtc_session(pc_id, reason="client disconnected", disconnect=False)
         await task.cancel()
 
     runner = PipelineRunner(handle_sigint=False)
@@ -1119,6 +1253,16 @@ async def index():
     html_path = os.path.join(os.path.dirname(__file__), "static", "index.html")
     with open(html_path) as f:
         return HTMLResponse(content=f.read())
+
+
+@app.get("/favicon.ico")
+async def favicon():
+    return Response(status_code=204)
+
+
+@app.get("/api/graph/visualization")
+async def graph_visualization(limit: int = 2500):
+    return _mock_visualization_graph(limit)
 
 
 @app.get("/api/ice")
@@ -1163,7 +1307,7 @@ async def offer(request: dict, background_tasks: BackgroundTasks):
         @pipecat_connection.event_handler("closed")
         async def handle_disconnected(webrtc_connection: SmallWebRTCConnection):
             logger.info(f"Discarding peer connection for pc_id: {webrtc_connection.pc_id}")
-            pcs_map.pop(webrtc_connection.pc_id, None)
+            await _cleanup_webrtc_session(webrtc_connection.pc_id, reason="connection closed", disconnect=False)
 
         background_tasks.add_task(
             run_bot, pipecat_connection, stt_name, llm_name, tts_name
@@ -1239,6 +1383,22 @@ async def graph_poll(pc_id: str):
         events.append(event)
 
     return {"events": events, "closed": False}
+
+
+@app.post("/api/hangup")
+async def hangup(request: Request):
+    """Explicit browser hangup so provider sockets are released immediately."""
+    try:
+        data = await request.json()
+    except Exception:
+        data = {}
+
+    pc_id = data.get("pc_id")
+    if not pc_id:
+        return Response(status_code=400, content="Missing pc_id")
+
+    found = await _cleanup_webrtc_session(pc_id, reason="client hangup")
+    return {"ok": True, "found": found}
 
 
 # ---------------------------------------------------------------------------
@@ -1325,103 +1485,45 @@ async def run_twilio_bot(websocket: WebSocket):
         multilingual_voice_id=os.getenv("ELEVENLABS_MULTILINGUAL_VOICE_ID", os.getenv("ELEVENLABS_VOICE_ID", "")),
     )
 
-    # Register GRC tools
-    async def handle_book_bulky_waste(params: FunctionCallParams):
-        name = params.arguments.get("name", "").strip()
-        phone = params.arguments.get("phone", "").strip()
-        address = params.arguments.get("address", "").strip()
-        preferred_date = params.arguments.get("preferred_date", "").strip()
-        logger.info(f"[Twilio] book_bulky_waste({name}, {phone})")
-        try:
-            result = book_bulky_waste(
-                {"name": name, "phone": phone, "address": address, "preferred_date": preferred_date}
-            )
-            await params.result_callback({"result": result})
-        except Exception as e:
-            logger.error(f"book_bulky_waste failed: {e}")
-            await params.result_callback({"error": "Failed to book collection. Please try again."})
+    # Register CommBank mock graph tools for Twilio sessions too.
+    async def handle_verify_push_approval(params: FunctionCallParams):
+        result = {"customer": "Jack Thompson", "verification": "CommBank app biometric push approved", "risk": "Low"}
+        await params.result_callback({"result": result})
 
-    async def handle_check_service_status(params: FunctionCallParams):
-        phone = params.arguments.get("phone", "").strip()
-        logger.info(f"[Twilio] check_service_status({phone})")
-        try:
-            result = check_service_status({"phone": phone})
-            await params.result_callback({"result": result})
-        except Exception as e:
-            logger.error(f"check_service_status failed: {e}")
-            await params.result_callback({"error": "Failed to check status. Please try again."})
+    async def handle_access_customer_node(params: FunctionCallParams):
+        node_id = params.arguments.get("node_id", "profile").strip()
+        nodes = {
+            "profile": {"customer": "Jack Thompson", "segment": "Premier", "registered_address": "Registered address on file"},
+            "card_freeze": {"card": "CommBank Awards Visa ending 4481", "status": "Temporarily frozen", "purchase": "$1,842.77 electronics transaction"},
+            "mortgage_payment": {"scheduled_payment": "$4,280.00", "status": "Rejected due to linked account freeze", "record_impact": "Preventable within grace window"},
+            "replacement_card": {"digital_card": "Available immediately", "physical_card": "Express shipping, 1-2 business days", "shipping_rule": "Registered address only"},
+        }
+        await params.result_callback({"result": nodes.get(node_id, nodes["profile"])})
 
-    async def handle_update_booking_date(params: FunctionCallParams):
-        phone = params.arguments.get("phone", "").strip()
-        name = params.arguments.get("name", "").strip()
-        new_date = params.arguments.get("new_date", "").strip()
-        logger.info(f"[Twilio] update_booking_date({phone})")
-        try:
-            result = update_booking_date({"phone": phone, "name": name, "new_date": new_date})
-            await params.result_callback({"result": result})
-        except Exception as e:
-            logger.error(f"update_booking_date failed: {e}")
-            await params.result_callback({"error": "Failed to update booking. Please try again."})
+    async def handle_apply_grace_period(params: FunctionCallParams):
+        due_date = (datetime.now() + timedelta(days=14)).strftime("%d %B %Y")
+        await params.result_callback({"result": {"grace_period": "Applied", "expires": due_date, "credit_record_impact": "None if resolved within window"}})
 
-    async def handle_get_bin_collection_day(params: FunctionCallParams):
-        address = params.arguments.get("address", "").strip()
-        logger.info(f"[Twilio] get_bin_collection_day({address})")
-        try:
-            result = await asyncio.to_thread(get_bin_collection_zone, {"address": address})
-            await params.result_callback({"result": result})
-        except Exception as e:
-            logger.error(f"get_bin_collection_day failed: {e}")
-            await params.result_callback(
-                {"error": "I couldn't look up the bin collection day. Please try again."}
-            )
+    async def handle_activate_digital_card(params: FunctionCallParams):
+        await params.result_callback({"result": {"digital_card": "Active in CommBank app", "wallets": "Apple Pay and Google Pay ready", "physical_card": "Express-shipped to registered address", "eta": "1-2 business days"}})
 
-    llm.register_function("book_bulky_waste", handle_book_bulky_waste)
-    llm.register_function("check_service_status", handle_check_service_status)
-    llm.register_function("update_booking_date", handle_update_booking_date)
-    llm.register_function("get_bin_collection_day", handle_get_bin_collection_day)
+    llm.register_function("verify_push_approval", handle_verify_push_approval)
+    llm.register_function("access_customer_node", handle_access_customer_node)
+    llm.register_function("apply_grace_period", handle_apply_grace_period)
+    llm.register_function("activate_digital_card", handle_activate_digital_card)
 
-    book_bulky_waste_schema = FunctionSchema(
-        name="book_bulky_waste",
-        description="Book a Bulky Waste Collection for a resident.",
-        properties={
-            "name": {"type": "string", "description": "Resident's full name"},
-            "phone": {"type": "string", "description": "Resident's phone number"},
-            "address": {"type": "string", "description": "Full property address"},
-            "preferred_date": {"type": "string", "description": "Preferred collection date in YYYY-MM-DD format"},
-        },
-        required=["name", "phone", "address", "preferred_date"],
-    )
-    check_service_status_schema = FunctionSchema(
-        name="check_service_status",
-        description="Check how many bulky waste collections a resident has remaining this year.",
-        properties={"phone": {"type": "string", "description": "Resident's phone number"}},
-        required=["phone"],
-    )
-    update_booking_date_schema = FunctionSchema(
-        name="update_booking_date",
-        description="Change the date of an existing bulky waste booking.",
-        properties={
-            "phone": {"type": "string", "description": "Resident's phone number"},
-            "name": {"type": "string", "description": "Resident's full name"},
-            "new_date": {"type": "string", "description": "New preferred date in YYYY-MM-DD format"},
-        },
-        required=["phone", "name", "new_date"],
-    )
-    get_bin_collection_day_schema = FunctionSchema(
-        name="get_bin_collection_day",
-        description="Look up the bin collection day for a resident's address.",
-        properties={
-            "address": {"type": "string", "description": "Full street address within the Georges River LGA"},
-        },
-        required=["address"],
-    )
     context = LLMContext(
         tools=ToolsSchema(
             standard_tools=[
-                book_bulky_waste_schema,
-                check_service_status_schema,
-                update_booking_date_schema,
-                get_bin_collection_day_schema,
+                FunctionSchema(name="verify_push_approval", description="Confirm Jack approved the CommBank app biometric push.", properties={}, required=[]),
+                FunctionSchema(
+                    name="access_customer_node",
+                    description="Access one mock customer graph node after verification and consent.",
+                    properties={"node_id": {"type": "string", "description": "profile, card_freeze, mortgage_payment, or replacement_card"}},
+                    required=["node_id"],
+                ),
+                FunctionSchema(name="apply_grace_period", description="Apply a 14-day grace period after Jack agrees.", properties={}, required=[]),
+                FunctionSchema(name="activate_digital_card", description="Activate Jack's replacement digital card after he agrees.", properties={}, required=[]),
             ]
         )
     )
@@ -1463,7 +1565,9 @@ async def run_twilio_bot(websocket: WebSocket):
             "role": "system",
             "content": (
                 "Greet the caller with: "
-                "'Hi, I'm Maya from Georges River Council — how can I help you today?'"
+                "'Hi Jack, lovely to hear from you. Before we get started, I'll need to verify it's you. "
+                "Could you check your CommBank app? There should be a push notification to approve. "
+                "Just let me know when you've done that.'"
             ),
         })
         await task.queue_frames([LLMRunFrame()])
@@ -1728,7 +1832,7 @@ async def run_translation_participant(
     from pipecat.services.cerebras.llm import CerebrasLLMService
     translation_llm = CerebrasLLMService(
         api_key=os.getenv("CEREBRAS_API_KEY"),
-        settings=CerebrasLLMService.Settings(model="gpt-oss-120b"),
+        settings=CerebrasLLMService.Settings(model=os.getenv("CEREBRA_LLM", "gpt-oss-120b")),
     )
 
     # TTS: voice only — no language/model override so ElevenLabs uses its
@@ -2178,7 +2282,7 @@ async def run_auto_translation(
     from pipecat.services.cerebras.llm import CerebrasLLMService
     translation_llm = CerebrasLLMService(
         api_key=os.getenv("CEREBRAS_API_KEY"),
-        settings=CerebrasLLMService.Settings(model="llama3.1-8b"),
+        settings=CerebrasLLMService.Settings(model=os.getenv("CEREBRA_LLM", "gpt-oss-120b")),
     )
 
     # Use a multilingual voice — handles both languages without voice-switching
