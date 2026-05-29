@@ -5,8 +5,6 @@ WORKDIR /app
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 
-COPY . /app
-
 RUN pip install --no-cache-dir uv \
  && uv pip install --system \
     "pipecat-ai[deepgram,elevenlabs,mistral,groq,silero,smallwebrtc]" \
@@ -19,6 +17,8 @@ RUN pip install --no-cache-dir uv \
     aioice \
     aiortc \
     opencv-python-headless
+
+COPY . /app
 
 EXPOSE 8080
 
