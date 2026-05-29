@@ -1,7 +1,7 @@
 :root {
   color-scheme: dark;
   font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  background: #090b10;
+  background: #05070b;
   color: #f4f7fb;
 }
 
@@ -21,6 +21,10 @@ body,
 
 body {
   overflow: hidden;
+  background:
+    radial-gradient(circle at 50% 44%, rgba(37, 99, 235, 0.12), transparent 30%),
+    radial-gradient(circle at 84% 20%, rgba(245, 158, 11, 0.1), transparent 24%),
+    #05070b;
 }
 
 .graph-app {
@@ -31,6 +35,7 @@ body {
 .viewport {
   position: relative;
   min-width: 0;
+  overflow: hidden;
 }
 
 .toolbar {
@@ -44,23 +49,17 @@ body {
   gap: 10px;
   flex-wrap: wrap;
   padding: 10px;
-  border: 1px solid rgba(255, 255, 255, 0.14);
+  border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 8px;
-  background: rgba(10, 14, 21, 0.82);
+  background: rgba(7, 10, 16, 0.84);
   backdrop-filter: blur(14px);
 }
 
 .toolbar label,
 .toolbar span,
 .back-link {
-  font-size: 13px;
+  font-size: 12px;
   color: #d8e2ef;
-}
-
-.toolbar .check {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
 }
 
 .toolbar input[type="number"] {
@@ -75,9 +74,9 @@ body {
 .toolbar input,
 .toolbar button {
   height: 34px;
-  border: 1px solid rgba(255, 255, 255, 0.16);
+  border: 1px solid rgba(255, 255, 255, 0.14);
   border-radius: 6px;
-  background: #111824;
+  background: #0d1320;
   color: #f4f7fb;
   padding: 0 10px;
 }
@@ -94,6 +93,7 @@ body {
   text-decoration: none;
   border: 0;
   cursor: pointer;
+  font-weight: 700;
 }
 
 #traceButton.is-running {
@@ -106,25 +106,136 @@ body {
   bottom: 16px;
   z-index: 5;
   padding: 8px 10px;
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 8px;
-  background: rgba(10, 14, 21, 0.76);
-  color: #c9d7ea;
+  background: rgba(7, 10, 16, 0.72);
+  color: #9fb0c7;
   font-size: 12px;
   backdrop-filter: blur(12px);
+}
+
+.context-svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.graph-title {
+  font-size: 14px;
+  font-weight: 800;
+  letter-spacing: 1.8px;
+  fill: rgba(244, 247, 251, 0.74);
+}
+
+.graph-subtitle {
+  font-size: 12px;
+  fill: rgba(159, 176, 199, 0.64);
+}
+
+.graph-link path {
+  fill: none;
+  stroke: rgba(125, 145, 176, 0.24);
+  stroke-width: 1.4;
+  transition: stroke 220ms ease, stroke-width 220ms ease, opacity 220ms ease;
+}
+
+.graph-link.trace path {
+  stroke: rgba(96, 165, 250, 0.45);
+  stroke-width: 2.1;
+}
+
+.graph-link.active path {
+  stroke: var(--link-color, #f59e0b);
+  stroke-width: 3;
+  filter: drop-shadow(0 0 8px var(--link-color, #f59e0b));
+}
+
+.graph-link.dim path {
+  opacity: 0.24;
+}
+
+.link-label {
+  fill: rgba(216, 226, 239, 0.56);
+  font-size: 9px;
+  text-anchor: middle;
+  pointer-events: none;
+}
+
+.graph-node {
+  cursor: pointer;
+  opacity: 1;
+  transition: opacity 180ms ease;
+}
+
+.graph-node.hidden,
+.graph-link.hidden {
+  display: none;
+}
+
+.graph-node.dim {
+  opacity: 0.55;
+}
+
+.node-orb {
+  fill: rgba(8, 13, 22, 0.95);
+  stroke: var(--node-color, #60a5fa);
+  stroke-width: 1.5;
+  filter: drop-shadow(0 0 10px var(--node-color, #60a5fa));
+}
+
+.node-core {
+  fill: var(--node-color, #60a5fa);
+  opacity: 0.95;
+}
+
+.node-halo {
+  fill: none;
+  stroke: var(--node-color, #60a5fa);
+  stroke-width: 1.2;
+  opacity: 0.35;
+}
+
+.graph-node.active .node-orb,
+.graph-node.center .node-orb {
+  stroke-width: 2.2;
+}
+
+.graph-node.active .node-halo,
+.graph-node.center .node-halo {
+  animation: pulse-ring 1.4s ease-out infinite;
+}
+
+.graph-node.entering {
+  animation: node-burst 560ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+.node-label {
+  fill: #f4f7fb;
+  font-size: 11px;
+  font-weight: 800;
+  text-anchor: middle;
+  pointer-events: none;
+}
+
+.node-meta {
+  fill: rgba(159, 176, 199, 0.78);
+  font-size: 9px;
+  text-anchor: middle;
+  pointer-events: none;
 }
 
 .inspector {
   overflow: auto;
   border-left: 1px solid rgba(255, 255, 255, 0.1);
-  background: #0d121b;
+  background: #0a0f18;
   padding: 22px;
 }
 
 .inspector h1 {
   margin: 0;
   font-size: 24px;
-  letter-spacing: 0;
 }
 
 .inspector h2 {
@@ -132,7 +243,6 @@ body {
   font-size: 13px;
   text-transform: uppercase;
   color: #9fb0c7;
-  letter-spacing: 0;
 }
 
 .muted {
@@ -147,11 +257,16 @@ body {
   margin: 18px 0 0;
 }
 
-.stats div {
+.stats div,
+.call-panel,
+.path-item {
   border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 8px;
+  background: #0f1724;
+}
+
+.stats div {
   padding: 12px;
-  background: #111824;
 }
 
 .stats dt {
@@ -230,9 +345,6 @@ body {
 .call-panel {
   display: grid;
   gap: 10px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 8px;
-  background: #111824;
   padding: 12px;
 }
 
@@ -309,9 +421,6 @@ body {
 .path-item {
   min-height: 30px;
   padding: 7px 8px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 8px;
-  background: #111824;
 }
 
 .path-item.active {
@@ -324,6 +433,28 @@ body {
   height: 12px;
   border-radius: 50%;
   flex: 0 0 auto;
+}
+
+@keyframes node-burst {
+  from {
+    opacity: 0;
+    transform: scale(0.12);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes pulse-ring {
+  0% {
+    r: 18;
+    opacity: 0.62;
+  }
+  100% {
+    r: 35;
+    opacity: 0;
+  }
 }
 
 @media (max-width: 920px) {

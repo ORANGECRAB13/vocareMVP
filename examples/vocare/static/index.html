@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>CommBank Context Graph 3D</title>
+    <title>CommBank Context Graph</title>
     <link rel="stylesheet" href="/static/graph-3d.css">
   </head>
   <body>
@@ -15,22 +15,18 @@
             Relationships
             <input id="limitInput" type="number" min="100" max="10000" step="100" value="2500">
           </label>
-          <label class="check">
-            <input id="labelsToggle" type="checkbox" checked>
-            Labels
-          </label>
           <input id="searchInput" type="search" placeholder="Find node...">
           <button id="traceButton" type="button">Aria trace</button>
           <button id="refreshButton" type="button">Refresh</button>
           <span id="statusText">Loading...</span>
         </div>
-        <div class="key-hint">Click/search sets center - WASD / arrows orbit - Q/E up/down - +/- zoom - Shift faster</div>
-        <div id="graph"></div>
+        <div class="key-hint">Call connection triggers the context burst - click or search any node to inspect it</div>
+        <div id="graph" aria-label="CommBank context graph traversal"></div>
       </section>
 
       <aside class="inspector">
         <h1>Context Graph</h1>
-        <p class="muted">Click a node or relationship to inspect it. Scroll to zoom, drag to rotate, right-drag to pan.</p>
+        <p class="muted">Aria follows a focused customer context path. Active nodes glow as they are accessed during the call.</p>
 
         <dl class="stats">
           <div><dt>Nodes</dt><dd id="nodeCount">...</dd></div>
@@ -67,9 +63,6 @@
       </aside>
     </main>
 
-    <script src="https://unpkg.com/three@0.160.0/build/three.min.js"></script>
-    <script src="https://unpkg.com/three-spritetext@1.8.2/dist/three-spritetext.min.js"></script>
-    <script src="https://unpkg.com/3d-force-graph@1.73.4/dist/3d-force-graph.min.js"></script>
     <script src="/static/graph-3d.js"></script>
   </body>
 </html>
