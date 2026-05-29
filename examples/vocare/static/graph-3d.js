@@ -1,4 +1,3 @@
-const graphEl = document.querySelector('#graph');
 const statusText = document.querySelector('#statusText');
 const nodeCount = document.querySelector('#nodeCount');
 const linkCount = document.querySelector('#linkCount');
@@ -15,90 +14,153 @@ const hangupButton = document.querySelector('#hangupButton');
 const callStatus = document.querySelector('#callStatus');
 const callTranscript = document.querySelector('#callTranscript');
 
-const palette = ['#60a5fa', '#34d399', '#f59e0b', '#f87171', '#a78bfa', '#2dd4bf', '#f472b6', '#c084fc', '#38bdf8', '#facc15'];
-const svgNS = 'http://www.w3.org/2000/svg';
-const viewBox = { x: -640, y: -380, width: 1280, height: 760 };
+const NODE_TYPES = {
+  Customer: { hex: '#f59e0b', rgb: '245,158,11', glyph: 'J' },
+  Channel: { hex: '#64748b', rgb: '100,116,139', glyph: 'C' },
+  Identity: { hex: '#fbbf24', rgb: '251,191,36', glyph: 'I' },
+  Card: { hex: '#3b82f6', rgb: '59,130,246', glyph: 'V' },
+  Transaction: { hex: '#38bdf8', rgb: '56,189,248', glyph: '$' },
+  RiskSignal: { hex: '#ef4444', rgb: '239,68,68', glyph: 'R' },
+  Account: { hex: '#10b981', rgb: '16,185,129', glyph: 'A' },
+  Payment: { hex: '#22c55e', rgb: '34,197,94', glyph: 'P' },
+  Consent: { hex: '#8b5cf6', rgb: '139,92,246', glyph: 'Y' },
+  Remediation: { hex: '#a855f7', rgb: '168,85,247', glyph: '+' },
+  Address: { hex: '#f97316', rgb: '249,115,22', glyph: 'H' },
+};
+
+const visibleIds = [
+  'customer:jack',
+  'identity:biometric',
+  'device:iphone',
+  'card:visa4481',
+  'txn:electronics',
+  'risk:freeze',
+  'payment:home-loan',
+  'consent:grace',
+  'remediation:grace',
+  'card:digital',
+  'fulfilment:physical-card',
+  'address:registered'
+];
 
 const tracePath = [
   'customer:jack',
   'identity:biometric',
-  'identity:biometric:confidence',
-  'identity:biometric:timestamp',
-  'identity:kyc',
-  'identity:passport',
-  'contact:mobile',
-  'contact:mobile:push-channel',
-  'contact:email',
   'device:iphone',
-  'device:iphone:trust-score',
-  'address:registered',
-  'profile:premier',
   'card:visa4481',
-  'card:visa4481:status',
   'txn:electronics',
-  'txn:electronics:merchant',
   'risk:freeze',
-  'risk:freeze:reason',
-  'risk:fraud-case',
-  'account:offset',
-  'loan:home',
   'payment:home-loan',
-  'payment:home-loan:record-impact',
-  'case:incident',
   'consent:grace',
   'remediation:grace',
-  'remediation:grace:expiry',
-  'consent:digital-card',
   'card:digital',
-  'card:digital:wallets',
-  'fulfilment:physical-card'
+  'fulfilment:physical-card',
+  'address:registered'
 ];
 
 const traceCopy = {
-  'customer:jack': ['Call context opened', 'Jack is the stable customer anchor before account data is discussed.'],
-  'identity:biometric': ['Verification approved', 'The app push confirms Jack before Aria accesses sensitive information.'],
-  'identity:biometric:confidence': ['Confidence checked', 'The biometric confidence score clears the security threshold.'],
-  'identity:biometric:timestamp': ['Approval timing checked', 'The timestamp confirms this approval belongs to the current call.'],
-  'identity:kyc': ['Identity profile checked', 'KYC status confirms a low-risk verified customer record.'],
-  'identity:passport': ['Document match', 'Stored identity documents support the verified customer context.'],
-  'contact:mobile': ['Trusted contact point', 'The verified mobile number links the push approval back to Jack.'],
-  'contact:mobile:push-channel': ['Push channel confirmed', 'The graph confirms app push is the preferred verification path.'],
-  'contact:email': ['Digital preference read', 'Statement and digital communication preferences are visible.'],
-  'device:iphone': ['Trusted device', 'The approval came from a known CommBank app device.'],
-  'device:iphone:trust-score': ['Device trust score', 'The known device has a strong trust score.'],
-  'address:registered': ['Registered address guardrail', 'Card fulfilment must use this address only.'],
-  'profile:premier': ['Premier relationship', 'Aria uses the relationship profile to keep the call calm and concise.'],
-  'card:visa4481': ['Visa card freeze', 'The affected card is retrieved after Jack confirms the topic.'],
-  'card:visa4481:status': ['Freeze status read', 'The card status confirms the Visa is temporarily frozen.'],
-  'txn:electronics': ['Purchase trigger', 'The transaction that caused the freeze is surfaced for confirmation.'],
-  'txn:electronics:merchant': ['Merchant detail read', 'Aria checks merchant, category, and amount before asking Jack.'],
-  'risk:freeze': ['Risk signal', 'The freeze decision explains why the card was temporarily restricted.'],
-  'risk:freeze:reason': ['Freeze reason read', 'The model reason explains why automated controls fired.'],
-  'risk:fraud-case': ['Review state', 'Fraud review is present but not escalated while Jack can confirm.'],
-  'account:offset': ['Linked offset account', 'Aria follows the graph to the account affected by the freeze.'],
-  'loan:home': ['Home loan context', 'The offset account is tied to Jack\'s home loan repayment.'],
-  'payment:home-loan': ['Rejected payment impact', 'The rejected payment is surfaced only after Jack confirms the purchase.'],
-  'payment:home-loan:record-impact': ['Record impact checked', 'The payment can still be protected inside the grace window.'],
-  'case:incident': ['Premier care case', 'The case pulls card, payment, consent, and remediation together.'],
-  'consent:grace': ['Grace consent required', 'Aria must ask before applying the grace period.'],
-  'remediation:grace': ['Grace period applied', 'Once Jack agrees, the grace period prevents record impact.'],
-  'remediation:grace:expiry': ['Grace expiry calculated', 'The expiry node gives Aria the exact confirmation date.'],
-  'consent:digital-card': ['Digital card consent', 'Aria asks before activating a replacement digital card.'],
-  'card:digital': ['Digital card active', 'The replacement digital card can be used immediately.'],
-  'card:digital:wallets': ['Wallet compatibility checked', 'Apple Pay and Google Pay support is confirmed.'],
-  'fulfilment:physical-card': ['Physical card shipment', 'The physical card is express-shipped to the registered address only.']
+  'customer:jack': ['Customer anchor', 'Jack is the stable center of the context graph.'],
+  'identity:biometric': ['Verification approved', 'The CommBank app push unlocks sensitive account context.'],
+  'device:iphone': ['Trusted device', 'The approval came from Jack\'s known CommBank app device.'],
+  'card:visa4481': ['Visa freeze found', 'Aria accesses the card only after Jack confirms the topic.'],
+  'txn:electronics': ['Purchase trigger', 'The electronics purchase is the transaction Jack needs to confirm.'],
+  'risk:freeze': ['Risk signal', 'The freeze decision explains why the card was restricted.'],
+  'payment:home-loan': ['Payment impact', 'The rejected home loan payment is surfaced only after consent.'],
+  'consent:grace': ['Consent required', 'Aria asks before applying any grace-period action.'],
+  'remediation:grace': ['Grace period', 'The protection window is applied after Jack agrees.'],
+  'card:digital': ['Digital replacement', 'A replacement digital card can be activated immediately.'],
+  'fulfilment:physical-card': ['Physical card', 'The physical card is express-shipped only to the registered address.'],
+  'address:registered': ['Address guardrail', 'Aria never sends the card to any other address.']
+};
+
+const nodeCallouts = {
+  'customer:jack': {
+    title: 'Call opened',
+    body: 'Aria starts with Jack as the customer anchor. No account information is discussed until verification is complete.',
+    meta: 'Premier Banking profile loaded'
+  },
+  'identity:biometric': {
+    title: 'CommBank app push sent',
+    body: 'Security notification sent to Jack\'s CommBank app. Aria waits until Jack confirms he approved it before proceeding.',
+    meta: 'Biometric push - pending customer confirmation'
+  },
+  'device:iphone': {
+    title: 'Trusted device matched',
+    body: 'The approval is linked to Jack\'s known iPhone with a strong trust score and no recent device-risk signals.',
+    meta: 'Trust score: Strong'
+  },
+  'card:visa4481': {
+    title: 'Reviewing card status',
+    body: 'CommBank Awards Visa ending 4481 is temporarily frozen. Aria checks this only after Jack says he is calling about the card.',
+    meta: 'Status: Temporarily frozen'
+  },
+  'txn:electronics': {
+    title: 'Unusual purchase detected',
+    body: 'The freeze was triggered by an unusual $1,842.77 electronics purchase this morning. Aria asks Jack whether he made it.',
+    meta: 'Amount: $1,842.77'
+  },
+  'risk:freeze': {
+    title: 'Freeze decision reviewed',
+    body: 'The risk control was based on merchant anomaly and purchase size. It can be resolved on the call if Jack confirms the purchase.',
+    meta: 'Model confidence: 83%'
+  },
+  'payment:home-loan': {
+    title: 'Flow-on impact found',
+    body: 'The card freeze affected the linked home loan payment. Aria surfaces this only after Jack confirms the transaction.',
+    meta: 'Payment status: Rejected'
+  },
+  'consent:grace': {
+    title: 'Consent required',
+    body: 'Aria offers help and waits for Jack to agree before applying the 14-day grace period.',
+    meta: 'Capture: Voice confirmation'
+  },
+  'remediation:grace': {
+    title: 'Grace period available',
+    body: 'Once Jack agrees, Aria applies the grace period and confirms there will be no record impact inside the window.',
+    meta: 'Duration: 14 days'
+  },
+  'card:digital': {
+    title: 'Digital card ready',
+    body: 'After Jack agrees, Aria activates the replacement digital card for Apple Pay or Google Pay.',
+    meta: 'Availability: Immediate'
+  },
+  'fulfilment:physical-card': {
+    title: 'Physical card prepared',
+    body: 'The physical replacement card is express-shipped and should arrive in 1-2 business days.',
+    meta: 'Delivery: Express post'
+  },
+  'address:registered': {
+    title: 'Registered address only',
+    body: 'Aria confirms the card can only be sent to the registered address on file.',
+    meta: 'Guardrail enforced'
+  }
+};
+
+const demoLines = {
+  'identity:biometric': 'Hi Jack, lovely to hear from you. Before we get started, I\'ll need to verify it\'s you. Could you check your CommBank app? There should be a push notification to approve.',
+  'card:visa4481': 'Thanks, Jack, you\'re all verified. I can see there\'s been some recent activity on your account. Are you by any chance calling about your Visa credit card?',
+  'txn:electronics': 'I\'ll take a look at that for you now.',
+  'risk:freeze': 'I\'ve temporarily frozen your CommBank Awards Visa ending in 4481 after an unusual $1,842.77 electronics purchase this morning. Did you make that purchase yourself?'
+};
+
+const layout = {
+  'customer:jack': { xPct: 50, yPct: 47, z: 0, size: 'lg' },
+  'identity:biometric': { xPct: 33, yPct: 28, z: -120, size: 'md', type: 'Channel' },
+  'device:iphone': { xPct: 23, yPct: 16, z: -260 },
+  'card:visa4481': { xPct: 29, yPct: 52, z: -120, size: 'md', type: 'Channel' },
+  'txn:electronics': { xPct: 14, yPct: 40, z: -260 },
+  'risk:freeze': { xPct: 14, yPct: 65, z: -260 },
+  'payment:home-loan': { xPct: 48, yPct: 78, z: -140, size: 'md', type: 'Channel' },
+  'consent:grace': { xPct: 63, yPct: 78, z: -260 },
+  'remediation:grace': { xPct: 72, yPct: 62, z: -120, size: 'md', type: 'Channel' },
+  'card:digital': { xPct: 83, yPct: 43, z: -260 },
+  'fulfilment:physical-card': { xPct: 82, yPct: 22, z: -260 },
+  'address:registered': { xPct: 92, yPct: 59, z: -260 },
 };
 
 let fullGraphData = { nodes: [], links: [] };
 let graphData = { nodes: [], links: [] };
-let colorByLabel = new Map();
 let nodeById = new Map();
-let visibleNodeIds = new Set();
-let exploredNodeIds = new Set();
-let activeTraceNodeId = 'customer:jack';
-let traceTimer = 0;
-let starTimer = 0;
-let traceIndex = 0;
 let callState = 'idle';
 let peerConnection = null;
 let dataChannel = null;
@@ -108,13 +170,247 @@ let remoteAudio = null;
 let activePcId = null;
 let graphPollTimer = 0;
 let pingTimer = 0;
+let traceTimer = 0;
+let traceIndex = 0;
 const transcriptSeen = new Set();
+
+class ContextGraph {
+  constructor(worldId, canvasId) {
+    this.world = document.getElementById(worldId);
+    this.canvas = document.getElementById(canvasId);
+    this.ctx = this.canvas.getContext('2d');
+    this.scene = this.canvas.parentElement;
+    this.nodes = [];
+    this.edges = [];
+    this.nodeMap = new Map();
+    this.activeNodes = new Set();
+    this.activeEdgeKeys = new Set();
+    this.calloutNodeId = null;
+    this.calloutEl = document.createElement('div');
+    this.calloutEl.className = 'node-callout';
+    this.scene.appendChild(this.calloutEl);
+    this.dpr = window.devicePixelRatio || 1;
+    this.rotX = 0;
+    this.rotY = 0;
+    this.targetRotX = 0;
+    this.targetRotY = 0;
+    this.resize();
+    window.addEventListener('resize', () => this.resize());
+    this.scene.addEventListener('mousemove', (event) => {
+      const rect = this.scene.getBoundingClientRect();
+      this.targetRotY = ((event.clientX - rect.left) / rect.width - 0.5) * 8;
+      this.targetRotX = -((event.clientY - rect.top) / rect.height - 0.5) * 5;
+    });
+    this.scene.addEventListener('mouseleave', () => {
+      this.targetRotX = 0;
+      this.targetRotY = 0;
+    });
+    this.loop();
+  }
+
+  resize() {
+    const rect = this.scene.getBoundingClientRect();
+    this.width = rect.width;
+    this.height = rect.height;
+    this.canvas.width = this.width * this.dpr;
+    this.canvas.height = this.height * this.dpr;
+    this.canvas.style.width = `${this.width}px`;
+    this.canvas.style.height = `${this.height}px`;
+    this.ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
+    this.nodes.forEach((node) => this.positionNode(node));
+  }
+
+  load(data) {
+    this.world.innerHTML = '';
+    this.nodes = [];
+    this.edges = [];
+    this.nodeMap.clear();
+    this.activeNodes.clear();
+    this.activeEdgeKeys.clear();
+    document.getElementById('graphPlaceholder').style.display = 'none';
+    this.hideCallout();
+
+    data.nodes.forEach((sourceNode, index) => {
+      const position = layout[sourceNode.id];
+      if (!position) return;
+      const type = position.type || sourceNode.primaryLabel || 'Customer';
+      const color = NODE_TYPES[type] || NODE_TYPES[sourceNode.primaryLabel] || NODE_TYPES.Customer;
+      const el = document.createElement('div');
+      el.className = `graph-node size-${position.size || 'sm'} inactive entering`;
+      el.style.setProperty('--node-color', color.hex);
+      el.style.setProperty('--node-rgb', color.rgb);
+      el.style.setProperty('--start-x', `${this.width / 2}px`);
+      el.style.setProperty('--start-y', `${this.height / 2}px`);
+      el.innerHTML = `
+        <span class="node-glyph">${escapeHtml(color.glyph)}</span>
+        <span class="node-label">${escapeHtml(sourceNode.label)}</span>
+        <span class="node-sublabel">${escapeHtml(nodeSubtitle(sourceNode))}</span>
+      `;
+      el.addEventListener('click', () => focusNode(sourceNode.id));
+      this.world.appendChild(el);
+      const node = { ...sourceNode, el, xPct: position.xPct, yPct: position.yPct, z: position.z, type };
+      this.nodes.push(node);
+      this.nodeMap.set(node.id, node);
+      this.positionNode(node);
+      window.setTimeout(() => el.classList.remove('entering'), 700 + index * 20);
+    });
+
+    data.links.forEach((link) => {
+      const source = this.nodeMap.get(nodeId(link.source));
+      const target = this.nodeMap.get(nodeId(link.target));
+      if (source && target) this.edges.push({ ...link, source, target, progress: 0, active: false, since: 0 });
+    });
+    this.activate('customer:jack');
+  }
+
+  reset() {
+    this.world.innerHTML = '';
+    this.nodes = [];
+    this.edges = [];
+    this.nodeMap.clear();
+    this.activeNodes.clear();
+    this.activeEdgeKeys.clear();
+    this.ctx.clearRect(0, 0, this.width, this.height);
+    document.getElementById('graphPlaceholder').style.display = 'flex';
+    this.hideCallout();
+  }
+
+  positionNode(node) {
+    node.x = node.xPct / 100 * this.width;
+    node.y = node.yPct / 100 * this.height;
+    node.el.style.setProperty('--x', `${node.x}px`);
+    node.el.style.setProperty('--y', `${node.y}px`);
+    node.el.style.setProperty('--z', `${node.z}px`);
+  }
+
+  activate(id) {
+    const node = this.nodeMap.get(id);
+    if (!node) return;
+    this.activeNodes.add(id);
+    node.el.classList.remove('inactive', 'dimmed', 'highlighted');
+    node.el.classList.add('active');
+  }
+
+  traverse(fromId, toId) {
+    this.activate(fromId);
+    this.activate(toId);
+    this.activeEdgeKeys.add(edgeKey(fromId, toId));
+    const edge = this.edges.find((candidate) => candidate.source.id === fromId && candidate.target.id === toId);
+    if (edge) {
+      edge.active = true;
+      edge.progress = 0;
+      edge.since = performance.now();
+    }
+  }
+
+  highlight(id) {
+    this.nodes.forEach((node) => node.el.classList.toggle('dimmed', node.id !== id && !this.connected(id, node.id)));
+    const node = this.nodeMap.get(id);
+    if (node) {
+      node.el.classList.remove('inactive');
+      node.el.classList.add('highlighted');
+      window.setTimeout(() => node.el.classList.remove('highlighted'), 1100);
+    }
+  }
+
+  showCallout(id, detail) {
+    const node = this.nodeMap.get(id);
+    if (!node || !detail) return;
+    this.calloutNodeId = id;
+    this.calloutEl.innerHTML = `
+      <strong>${escapeHtml(detail.title)}</strong>
+      <span>${escapeHtml(detail.body)}</span>
+      <em>${escapeHtml(detail.meta || '')}</em>
+    `;
+    this.calloutEl.classList.add('is-visible');
+    this.updateCalloutPosition();
+  }
+
+  hideCallout() {
+    this.calloutNodeId = null;
+    this.calloutEl.classList.remove('is-visible');
+  }
+
+  connected(a, b) {
+    return this.edges.some((edge) => edge.source.id === a && edge.target.id === b || edge.source.id === b && edge.target.id === a);
+  }
+
+  loop() {
+    this.rotX += (this.targetRotX - this.rotX) * 0.08;
+    this.rotY += (this.targetRotY - this.rotY) * 0.08;
+    this.world.style.transform = `rotateX(${this.rotX}deg) rotateY(${this.rotY}deg)`;
+    this.drawEdges();
+    this.updateCalloutPosition();
+    requestAnimationFrame(() => this.loop());
+  }
+
+  nodeCenter(node) {
+    const nodeRect = node.el.getBoundingClientRect();
+    const sceneRect = this.scene.getBoundingClientRect();
+    return {
+      x: nodeRect.left + nodeRect.width / 2 - sceneRect.left,
+      y: nodeRect.top + nodeRect.height / 2 - sceneRect.top,
+      radius: Math.min(nodeRect.width, nodeRect.height) / 2
+    };
+  }
+
+  updateCalloutPosition() {
+    if (!this.calloutNodeId || !this.calloutEl.classList.contains('is-visible')) return;
+    const node = this.nodeMap.get(this.calloutNodeId);
+    if (!node) return;
+    const center = this.nodeCenter(node);
+    const preferLeft = center.x > this.width * 0.68;
+    const x = preferLeft ? center.x - 312 : center.x + center.radius + 18;
+    const y = Math.max(72, Math.min(this.height - 170, center.y - 58));
+    this.calloutEl.style.transform = `translate(${Math.round(x)}px, ${Math.round(y)}px)`;
+    this.calloutEl.classList.toggle('left', preferLeft);
+  }
+
+  drawEdges() {
+    const ctx = this.ctx;
+    ctx.clearRect(0, 0, this.width, this.height);
+    this.edges.forEach((edge) => {
+      const sourceCenter = this.nodeCenter(edge.source);
+      const targetCenter = this.nodeCenter(edge.target);
+      const sx = sourceCenter.x;
+      const sy = sourceCenter.y;
+      const tx = targetCenter.x;
+      const ty = targetCenter.y;
+      const dx = tx - sx;
+      const dy = ty - sy;
+      const len = Math.max(1, Math.sqrt(dx * dx + dy * dy));
+      const cx = (sx + tx) / 2 + (-dy / len) * Math.min(60, len * 0.14);
+      const cy = (sy + ty) / 2 + (dx / len) * Math.min(60, len * 0.14);
+      const active = edge.active || this.activeEdgeKeys.has(edgeKey(edge.source.id, edge.target.id));
+      const color = NODE_TYPES[edge.target.type]?.hex || NODE_TYPES[edge.target.primaryLabel]?.hex || '#64748b';
+
+      if (edge.active) edge.progress = Math.min(1, (performance.now() - edge.since) / 620);
+      ctx.save();
+      ctx.strokeStyle = active ? color : '#1b1b1b';
+      ctx.lineWidth = active ? 2.4 : 1;
+      ctx.globalAlpha = active ? 0.86 : 0.36;
+      ctx.shadowColor = active ? color : 'transparent';
+      ctx.shadowBlur = active ? 12 : 0;
+      ctx.beginPath();
+      if (edge.active && edge.progress < 1) {
+        drawPartialQuad(ctx, sx, sy, cx, cy, tx, ty, edge.progress);
+      } else {
+        ctx.moveTo(sx, sy);
+        ctx.quadraticCurveTo(cx, cy, tx, ty);
+      }
+      ctx.stroke();
+      ctx.restore();
+    });
+  }
+}
+
+const graphRenderer = new ContextGraph('graphWorld', 'edgeCanvas');
 
 initialize();
 
 async function initialize() {
   refreshButton.addEventListener('click', loadGraph);
-  traceButton.addEventListener('click', toggleTrace);
+  traceButton.addEventListener('click', runTraceDemo);
   callButton.addEventListener('click', connectCall);
   hangupButton.addEventListener('click', disconnectCall);
   talkButton.addEventListener('mousedown', startTalking);
@@ -125,7 +421,9 @@ async function initialize() {
   searchInput.addEventListener('keydown', (event) => {
     if (event.key === 'Enter') {
       event.preventDefault();
-      focusSearchResult();
+      const query = normalize(searchInput.value);
+      const match = graphData.nodes.find((node) => normalize(node.label).includes(query) || normalize(node.id).includes(query));
+      if (match) focusNode(match.id);
     }
   });
   window.addEventListener('pagehide', () => disconnectCall(true));
@@ -133,223 +431,78 @@ async function initialize() {
 }
 
 async function loadGraph() {
-  const limit = Math.max(100, Math.min(10000, Number(limitInput.value || 2500)));
-  statusText.textContent = 'Loading...';
-  refreshButton.disabled = true;
-
+  statusText.textContent = 'Loading context...';
   try {
+    const limit = Number(limitInput.value || 2500);
     const response = await fetch(`/api/graph/visualization?limit=${encodeURIComponent(limit)}`);
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     fullGraphData = normalizePayload(await response.json());
-    statusText.textContent = 'Context loaded - waiting for call';
   } catch (_) {
     fullGraphData = mockGraphData();
-    statusText.textContent = 'Mock context loaded - waiting for call';
-  } finally {
-    apply2DLayout(fullGraphData);
-    colorByLabel = buildColorMap(fullGraphData.nodes);
-    nodeById = new Map(fullGraphData.nodes.map((node) => [node.id, node]));
-    activeTraceNodeId = 'customer:jack';
-    visibleNodeIds = new Set(['customer:jack']);
-    exploredNodeIds = new Set(['customer:jack']);
-    updateVisibleGraph();
-    renderLegend();
-    showNodeDetails(nodeById.get('customer:jack') || fullGraphData.nodes[0]);
-    renderAccessPath(activeTraceNodeId);
-    nodeCount.textContent = formatNumber(fullGraphData.nodes.length);
-    linkCount.textContent = formatNumber(fullGraphData.links.length);
-    refreshButton.disabled = false;
   }
+  graphData = reduceGraph(fullGraphData);
+  nodeById = new Map(graphData.nodes.map((node) => [node.id, node]));
+  nodeCount.textContent = graphData.nodes.length;
+  linkCount.textContent = graphData.links.length;
+  renderLegend();
+  renderAccessPath();
+  graphRenderer.reset();
+  showNodeDetails(graphData.nodes[0]);
+  statusText.textContent = 'Context ready - waiting for call';
 }
 
-function normalizePayload(payload) {
-  return {
-    nodes: (payload.nodes || []).map((node) => ({
-      ...node,
-      label: node.label || node.id,
-      labels: node.labels || [node.primaryLabel || 'Node'],
-      primaryLabel: node.primaryLabel || node.labels?.[0] || 'Node',
-      properties: node.properties || {}
-    })),
-    links: (payload.links || []).map((link) => ({ ...link, properties: link.properties || {} }))
-  };
+function reduceGraph(data) {
+  const nodes = visibleIds.map((id) => data.nodes.find((node) => node.id === id)).filter(Boolean);
+  const nodeIds = new Set(nodes.map((node) => node.id));
+  const apiLinks = data.links.filter((link) => nodeIds.has(nodeId(link.source)) && nodeIds.has(nodeId(link.target)));
+  const links = [];
+  for (let i = 0; i < tracePath.length - 1; i += 1) {
+    const source = tracePath[i];
+    const target = tracePath[i + 1];
+    if (!nodeIds.has(source) || !nodeIds.has(target)) continue;
+    const existing = apiLinks.find((link) => nodeId(link.source) === source && nodeId(link.target) === target);
+    links.push(existing || { source, target, type: 'ACCESSES', properties: {} });
+  }
+  return { nodes, links };
 }
 
-function beginStarExpansion() {
-  clearTimers();
-  statusText.textContent = 'Context graph expanding from Jack';
-  activeTraceNodeId = 'customer:jack';
-  visibleNodeIds = new Set(['customer:jack']);
-  exploredNodeIds = new Set(['customer:jack']);
-  updateVisibleGraph();
-
-  const order = expansionOrder();
-  let index = 0;
-  starTimer = setInterval(() => {
-    const batch = index < 8 ? 2 : 3;
-    for (let i = 0; i < batch && index < order.length; i += 1) {
-      visibleNodeIds.add(order[index]);
-      index += 1;
-    }
-    updateVisibleGraph(true);
-    if (index >= order.length) {
-      clearInterval(starTimer);
-      starTimer = 0;
-      statusText.textContent = `Loaded ${formatNumber(fullGraphData.links.length)} relationships`;
-    }
-  }, 105);
-}
-
-function toggleTrace() {
+function runTraceDemo() {
   if (traceTimer) {
     clearInterval(traceTimer);
     traceTimer = 0;
     traceButton.classList.remove('is-running');
     return;
   }
-  beginStarExpansion();
+  graphRenderer.load(graphData);
+  statusText.textContent = 'Traversing graph...';
   traceButton.classList.add('is-running');
   traceIndex = 0;
+  focusNode(tracePath[0], false);
   traceTimer = setInterval(() => {
-    const id = tracePath[traceIndex];
-    const node = nodeById.get(id);
-    if (node) focusNode(node, true);
-    traceIndex += 1;
-    if (traceIndex >= tracePath.length) {
+    const fromId = tracePath[traceIndex];
+    const toId = tracePath[traceIndex + 1];
+    if (!toId) {
       clearInterval(traceTimer);
       traceTimer = 0;
       traceButton.classList.remove('is-running');
+      statusText.textContent = 'Context loaded - agent has full awareness';
+      return;
     }
-  }, 520);
+    graphRenderer.traverse(fromId, toId);
+    if (demoLines[toId]) addTranscript('agent', demoLines[toId]);
+    focusNode(toId, false);
+    traceIndex += 1;
+  }, 560);
 }
 
-function clearTimers() {
-  if (starTimer) clearInterval(starTimer);
-  if (traceTimer) clearInterval(traceTimer);
-  starTimer = 0;
-  traceTimer = 0;
-  traceButton.classList.remove('is-running');
-}
-
-function expansionOrder() {
-  const ids = new Set(fullGraphData.nodes.map((node) => node.id));
-  const traced = tracePath.filter((id) => ids.has(id) && id !== 'customer:jack');
-  const rest = fullGraphData.nodes.map((node) => node.id).filter((id) => id !== 'customer:jack' && !traced.includes(id));
-  return [...traced, ...rest];
-}
-
-function updateVisibleGraph(animateNew = false) {
-  const visibleLinks = fullGraphData.links.filter((link) => visibleNodeIds.has(nodeId(link.source)) && visibleNodeIds.has(nodeId(link.target)));
-  graphData = {
-    nodes: fullGraphData.nodes.filter((node) => visibleNodeIds.has(node.id)),
-    links: visibleLinks
-  };
-  renderGraph(animateNew);
-  renderAccessPath(activeTraceNodeId);
-}
-
-function renderGraph(animateNew = false) {
-  graphEl.innerHTML = '';
-  const svg = svgEl('svg', { class: 'context-svg', viewBox: `${viewBox.x} ${viewBox.y} ${viewBox.width} ${viewBox.height}`, role: 'img' });
-  const defs = svgEl('defs');
-  defs.appendChild(svgEl('filter', { id: 'softGlow', x: '-40%', y: '-40%', width: '180%', height: '180%' }, [
-    svgEl('feGaussianBlur', { stdDeviation: '4', result: 'blur' }),
-    svgEl('feMerge', {}, [svgEl('feMergeNode', { in: 'blur' }), svgEl('feMergeNode', { in: 'SourceGraphic' })])
-  ]));
-  svg.appendChild(defs);
-
-  svg.appendChild(svgEl('text', { class: 'graph-title', x: -604, y: -338 }, ['CONTEXT GRAPH']));
-  svg.appendChild(svgEl('text', { class: 'graph-subtitle', x: -604, y: -316 }, [statusText.textContent]));
-
-  const linkLayer = svgEl('g', { class: 'links' });
-  for (const link of graphData.links) linkLayer.appendChild(renderLink(link));
-  svg.appendChild(linkLayer);
-
-  const nodeLayer = svgEl('g', { class: 'nodes' });
-  for (const node of graphData.nodes) nodeLayer.appendChild(renderNode(node, animateNew));
-  svg.appendChild(nodeLayer);
-
-  graphEl.appendChild(svg);
-}
-
-function renderLink(link) {
-  const source = nodeById.get(nodeId(link.source));
-  const target = nodeById.get(nodeId(link.target));
-  const active = isActiveTraceLink(link);
-  const trace = isTraceLink(link);
-  const dim = exploredNodeIds.size > 1 && !active && !trace ? ' dim' : '';
-  const color = colorForLabel(target?.primaryLabel || source?.primaryLabel);
-  const mid = midpoint(source, target);
-  const group = svgEl('g', { class: `graph-link${trace ? ' trace' : ''}${active ? ' active' : ''}${dim}`, style: `--link-color:${color}` });
-  group.appendChild(svgEl('path', { d: curvePath(source, target) }));
-  if (active || trace) {
-    group.appendChild(svgEl('text', { class: 'link-label', x: mid.x, y: mid.y - 6 }, [link.type]));
-  }
-  group.addEventListener('click', () => showLinkDetails(link));
-  return group;
-}
-
-function renderNode(node, animateNew) {
-  const active = node.id === activeTraceNodeId;
-  const center = node.id === 'customer:jack';
-  const dim = exploredNodeIds.size > 1 && !exploredNodeIds.has(node.id) && !linkedToActive(node.id) ? ' dim' : '';
-  const entering = animateNew && !exploredNodeIds.has(node.id) ? ' entering' : '';
-  const color = colorForLabel(node.primaryLabel);
-  const radius = nodeRadius(node);
-  const group = svgEl('g', {
-    class: `graph-node${active ? ' active' : ''}${center ? ' center' : ''}${dim}${entering}`,
-    transform: `translate(${node.x} ${node.y})`,
-    style: `--node-color:${color}`
-  });
-  group.appendChild(svgEl('circle', { class: 'node-halo', r: radius + 12 }));
-  group.appendChild(svgEl('circle', { class: 'node-orb', r: radius }));
-  group.appendChild(svgEl('circle', { class: 'node-core', r: Math.max(3, radius * 0.32) }));
-  group.appendChild(svgEl('text', { class: 'node-label', y: radius + 18 }, [node.label]));
-  group.appendChild(svgEl('text', { class: 'node-meta', y: radius + 32 }, [nodeMeta(node)]));
-  group.addEventListener('click', () => focusNode(node, true));
-  return group;
-}
-
-function focusNode(node, fromUser = false) {
+function focusNode(id, highlight = true) {
+  const node = nodeById.get(id);
   if (!node) return;
-  revealNodeAndContext(node.id);
-  activeTraceNodeId = node.id;
-  exploredNodeIds.add(node.id);
-  if (fromUser) {
-    const traceIndexForNode = tracePath.indexOf(node.id);
-    if (traceIndexForNode >= 0) {
-      tracePath.slice(0, traceIndexForNode + 1).forEach((id) => exploredNodeIds.add(id));
-    }
-  }
-  updateVisibleGraph();
+  if (highlight) graphRenderer.highlight(id);
+  graphRenderer.activate(id);
+  graphRenderer.showCallout(id, nodeCallouts[id]);
   showNodeDetails(node);
-}
-
-function revealNodeAndContext(id) {
-  visibleNodeIds.add(id);
-  const traceIndexForNode = tracePath.indexOf(id);
-  if (traceIndexForNode >= 0) {
-    tracePath.slice(0, traceIndexForNode + 1).forEach((traceId) => visibleNodeIds.add(traceId));
-  }
-  for (const link of fullGraphData.links) {
-    const source = nodeId(link.source);
-    const target = nodeId(link.target);
-    if (source === id || target === id || tracePath.includes(source) && tracePath.includes(target)) {
-      visibleNodeIds.add(source);
-      visibleNodeIds.add(target);
-    }
-  }
-}
-
-function focusSearchResult() {
-  const query = normalize(searchInput.value);
-  if (!query) return;
-  const node = fullGraphData.nodes.find((candidate) =>
-    normalize(candidate.label).includes(query) ||
-    normalize(candidate.id).includes(query) ||
-    normalize(candidate.primaryLabel).includes(query)
-  );
-  if (node) focusNode(node, true);
+  renderAccessPath(id);
 }
 
 function focusEventNode(event) {
@@ -361,14 +514,20 @@ function focusEventNode(event) {
     grace_period: 'remediation:grace',
     replacement_card: 'card:digital'
   };
-  const target = nodeById.get(map[id] || id);
-  if (target) focusNode(target, true);
+  const targetId = map[id] || id;
+  const targetIndex = tracePath.indexOf(targetId);
+  if (targetIndex > 0) {
+    graphRenderer.traverse(tracePath[targetIndex - 1], targetId);
+  }
+  focusNode(targetId);
 }
 
 async function connectCall() {
   if (callState === 'connecting' || callState === 'connected') return;
   setCallState('connecting', 'Requesting microphone...');
   clearTranscript();
+  graphRenderer.load(graphData);
+  statusText.textContent = 'Context graph expanding...';
 
   try {
     localStream = await navigator.mediaDevices.getUserMedia({
@@ -411,7 +570,7 @@ async function connectCall() {
     peerConnection.onconnectionstatechange = () => {
       if (peerConnection?.connectionState === 'connected') {
         setCallState('connected', 'Aria is live. Hold to talk.');
-        beginStarExpansion();
+        statusText.textContent = 'Context loaded - agent has full awareness';
       }
       if (peerConnection?.connectionState === 'failed') {
         setCallState('error', 'Connection failed. Try again.');
@@ -565,7 +724,7 @@ function addTranscript(role, text) {
 
   const line = document.createElement('div');
   line.className = `call-line ${role}`;
-  line.textContent = `${role === 'user' ? 'Jack' : 'Aria'}: ${cleanText}`;
+  line.textContent = cleanText;
   callTranscript.appendChild(line);
   while (callTranscript.children.length > 8) callTranscript.removeChild(callTranscript.firstChild);
   callTranscript.scrollTop = callTranscript.scrollHeight;
@@ -592,136 +751,33 @@ function showNodeDetails(node) {
   `;
 }
 
-function showLinkDetails(link) {
-  selectionDetails.innerHTML = `
-    <h3>${escapeHtml(link.type)}</h3>
-    <p class="muted">${escapeHtml(nodeLabel(link.source))} -> ${escapeHtml(nodeLabel(link.target))}</p>
-    ${propertyTable(link.properties)}
-  `;
-}
-
-function renderLegend() {
-  legendEl.innerHTML = [...colorByLabel.entries()]
-    .map(([label, color]) => `<div class="legend-item"><span class="swatch" style="background:${color}"></span>${escapeHtml(label)}</div>`)
-    .join('');
-}
-
-function renderAccessPath(activeId) {
-  accessPathEl.innerHTML = tracePath
-    .filter((id) => nodeById.has(id))
-    .map((id) => {
-      const node = nodeById.get(id);
-      const active = id === activeId ? ' active' : '';
-      return `<div class="path-item${active}"><span class="swatch" style="background:${colorForLabel(node.primaryLabel)}"></span>${escapeHtml(node.label)}</div>`;
-    })
-    .join('');
-}
-
-function apply2DLayout(data) {
-  const traceNodes = tracePath.map((id) => data.nodes.find((node) => node.id === id)).filter(Boolean);
-  traceNodes.forEach((node, index) => {
-    if (node.id === 'customer:jack') {
-      node.x = 0;
-      node.y = 0;
-      return;
-    }
-    const angle = -Math.PI * 0.92 + (index / Math.max(1, traceNodes.length - 1)) * Math.PI * 1.84;
-    const radius = 150 + Math.min(190, index * 10);
-    node.x = Math.cos(angle) * radius;
-    node.y = Math.sin(angle) * radius * 0.72;
-  });
-
-  const buckets = new Map();
-  for (const node of data.nodes) {
-    if (tracePath.includes(node.id)) continue;
-    const parentId = parentFor(node.id, data.links);
-    if (!buckets.has(parentId)) buckets.set(parentId, []);
-    buckets.get(parentId).push(node);
-  }
-
-  for (const [parentId, nodes] of buckets.entries()) {
-    const parent = data.nodes.find((node) => node.id === parentId) || data.nodes.find((node) => node.id === 'customer:jack') || { x: 0, y: 0 };
-    nodes.forEach((node, index) => {
-      const side = parent.x >= 0 ? 1 : -1;
-      const angle = (index / Math.max(1, nodes.length)) * Math.PI * 1.25 - Math.PI * 0.62;
-      const radius = 86 + index * 12;
-      node.x = parent.x + side * Math.cos(angle) * radius;
-      node.y = parent.y + Math.sin(angle) * radius * 0.72;
-    });
-  }
-}
-
-function parentFor(id, links) {
-  const incoming = links.find((link) => nodeId(link.target) === id);
-  if (incoming) return nodeId(incoming.source);
-  const outgoing = links.find((link) => nodeId(link.source) === id);
-  return outgoing ? nodeId(outgoing.target) : 'customer:jack';
-}
-
-function curvePath(source, target) {
-  if (!source || !target) return '';
-  const dx = target.x - source.x;
-  const dy = target.y - source.y;
-  const curve = Math.min(90, Math.max(-90, dx * 0.12));
-  const cx = source.x + dx / 2 - dy * 0.08;
-  const cy = source.y + dy / 2 + curve;
-  return `M ${source.x} ${source.y} Q ${cx} ${cy} ${target.x} ${target.y}`;
-}
-
-function midpoint(source, target) {
+function normalizePayload(payload) {
   return {
-    x: (source.x + target.x) / 2,
-    y: (source.y + target.y) / 2
+    nodes: (payload.nodes || []).map((node) => ({
+      ...node,
+      label: node.label || node.id,
+      labels: node.labels || [node.primaryLabel || 'Node'],
+      primaryLabel: node.primaryLabel || node.labels?.[0] || 'Node',
+      properties: node.properties || {}
+    })),
+    links: (payload.links || []).map((link) => ({ ...link, properties: link.properties || {} }))
   };
 }
 
-function linkedToActive(id) {
-  return fullGraphData.links.some((link) =>
-    (nodeId(link.source) === activeTraceNodeId && nodeId(link.target) === id) ||
-    (nodeId(link.target) === activeTraceNodeId && nodeId(link.source) === id)
-  );
+function renderLegend() {
+  const types = [...new Set(graphData.nodes.map((node) => layout[node.id]?.type || node.primaryLabel))];
+  legendEl.innerHTML = types.map((type) => {
+    const color = NODE_TYPES[type] || NODE_TYPES.Customer;
+    return `<div class="legend-item"><span class="legend-dot" style="background:${color.hex}"></span>${escapeHtml(type)}</div>`;
+  }).join('');
 }
 
-function isTraceLink(link) {
-  const sourceIndex = tracePath.indexOf(nodeId(link.source));
-  const targetIndex = tracePath.indexOf(nodeId(link.target));
-  return sourceIndex >= 0 && targetIndex === sourceIndex + 1;
-}
-
-function isActiveTraceLink(link) {
-  const targetIndex = tracePath.indexOf(activeTraceNodeId);
-  return targetIndex > 0 && nodeId(link.source) === tracePath[targetIndex - 1] && nodeId(link.target) === activeTraceNodeId;
-}
-
-function nodeRadius(node) {
-  if (node.id === 'customer:jack') return 24;
-  if (node.id === activeTraceNodeId) return 19;
-  if (tracePath.includes(node.id)) return 16;
-  return 13;
-}
-
-function nodeMeta(node) {
-  if (node.primaryLabel === 'Customer') return node.properties?.segment || 'Premier';
-  if (node.primaryLabel === 'Evidence') return node.labels?.[1] || 'Evidence';
-  return node.primaryLabel || 'Node';
-}
-
-function nodeLabel(value) {
-  if (value && typeof value === 'object') return value.label || value.id;
-  return nodeById.get(value)?.label || value;
-}
-
-function nodeId(value) {
-  return value && typeof value === 'object' ? value.id : value;
-}
-
-function buildColorMap(nodes) {
-  const labels = [...new Set(nodes.map((node) => node.primaryLabel || 'Node'))].sort();
-  return new Map(labels.map((label, index) => [label, palette[index % palette.length]]));
-}
-
-function colorForLabel(label) {
-  return colorByLabel.get(label || 'Node') || '#94a3b8';
+function renderAccessPath(activeId = 'customer:jack') {
+  accessPathEl.innerHTML = tracePath.map((id) => {
+    const node = nodeById.get(id);
+    if (!node) return '';
+    return `<div class="path-item${id === activeId ? ' active' : ''}"><span class="swatch"></span>${escapeHtml(node.label)}</div>`;
+  }).join('');
 }
 
 function propertyTable(properties) {
@@ -732,11 +788,37 @@ function propertyTable(properties) {
   return rows ? `<table>${rows}</table>` : '<p class="muted">No properties.</p>';
 }
 
-function svgEl(tag, attrs = {}, children = []) {
-  const element = document.createElementNS(svgNS, tag);
-  for (const [key, value] of Object.entries(attrs)) element.setAttribute(key, value);
-  for (const child of children) element.appendChild(typeof child === 'string' ? document.createTextNode(child) : child);
-  return element;
+function nodeSubtitle(node) {
+  if (node.id === 'customer:jack') return node.properties.segment || 'Premier';
+  if (node.primaryLabel === 'Evidence') return node.labels?.[1] || 'Evidence';
+  if (node.properties.status) return node.properties.status;
+  if (node.properties.amount) return node.properties.amount;
+  if (node.properties.method) return node.properties.method;
+  return node.primaryLabel;
+}
+
+function edgeKey(source, target) {
+  return `${source}->${target}`;
+}
+
+function nodeId(value) {
+  return value && typeof value === 'object' ? value.id : value;
+}
+
+function drawPartialQuad(ctx, x0, y0, cx, cy, x1, y1, t) {
+  if (t >= 1) {
+    ctx.moveTo(x0, y0);
+    ctx.quadraticCurveTo(cx, cy, x1, y1);
+    return;
+  }
+  const ax = x0 + (cx - x0) * t;
+  const ay = y0 + (cy - y0) * t;
+  const bx = cx + (x1 - cx) * t;
+  const by = cy + (y1 - cy) * t;
+  const ex = ax + (bx - ax) * t;
+  const ey = ay + (by - ay) * t;
+  ctx.moveTo(x0, y0);
+  ctx.quadraticCurveTo(ax, ay, ex, ey);
 }
 
 function normalize(value) {
@@ -749,10 +831,6 @@ function formatValue(value) {
   return String(value);
 }
 
-function formatNumber(value) {
-  return new Intl.NumberFormat('en-US').format(value || 0);
-}
-
 function escapeHtml(value) {
   return String(value ?? '')
     .replace(/&/g, '&amp;')
@@ -763,50 +841,24 @@ function escapeHtml(value) {
 }
 
 function mockGraphData() {
-  const nodes = [
-    node('customer:jack', 'Jack Thompson', 'Customer', ['Customer', 'Premier'], { cif: 'CBA-PRM-882914', segment: 'Premier Banking', relationshipSince: '2016-04-18' }),
-    node('identity:biometric', 'Biometric Push', 'Identity', ['Identity', 'SecurityControl'], { method: 'CommBank app biometric approval', status: 'Approved', confidence: '99.6%' }),
-    node('identity:biometric:confidence', 'Biometric Confidence', 'Evidence', ['Evidence', 'VerificationDetail'], { score: '99.6%', threshold: '95%', decision: 'Pass' }),
-    node('identity:biometric:timestamp', 'Approval Timestamp', 'Evidence', ['Evidence', 'VerificationDetail'], { approvedAt: 'Today 10:14:22 AEST', freshness: 'Current call' }),
-    node('identity:kyc', 'KYC Profile', 'Identity', ['Identity', 'KYC'], { status: 'Current', riskTier: 'Low' }),
-    node('identity:passport', 'Passport Record', 'Identity', ['Identity', 'Document'], { documentType: 'Passport', verification: 'Matched on file' }),
-    node('contact:mobile', 'Mobile Number', 'Contact', ['Contact', 'PersonalInfo'], { mobile: '+61 4XX XXX 228', verified: 'Yes' }),
-    node('contact:mobile:push-channel', 'Push Channel', 'Evidence', ['Evidence', 'ContactDetail'], { channel: 'CommBank app push', preferred: 'Yes' }),
-    node('contact:email', 'Email', 'Contact', ['Contact', 'PersonalInfo'], { email: 'jack.thompson@example.com', statementDelivery: 'Digital' }),
-    node('address:registered', 'Registered Address', 'Address', ['Address', 'PersonalInfo'], { address: 'Registered address on file', usage: 'Card fulfilment only' }),
-    node('device:iphone', 'Trusted iPhone', 'Device', ['Device', 'Security'], { device: 'iPhone 15 Pro', trustScore: 'Strong' }),
-    node('device:iphone:trust-score', 'Device Trust Score', 'Evidence', ['Evidence', 'DeviceDetail'], { trustScore: 'Strong', recentRisk: 'None' }),
-    node('profile:premier', 'Premier Relationship', 'Preference', ['Preference', 'Relationship'], { rm: 'Aria', contactStyle: 'Short conversational steps' }),
-    node('card:visa4481', 'Awards Visa 4481', 'Card', ['Card'], { product: 'CommBank Awards Visa', lastFour: '4481', status: 'Temporarily frozen' }),
-    node('card:visa4481:status', 'Freeze Status', 'Evidence', ['Evidence', 'CardDetail'], { status: 'Temporarily frozen', reversible: 'Yes' }),
-    node('txn:electronics', 'Electronics Purchase', 'Transaction', ['Transaction'], { amount: '$1,842.77', merchant: 'Electronics retailer' }),
-    node('txn:electronics:merchant', 'Merchant Detail', 'Evidence', ['Evidence', 'TransactionDetail'], { merchant: 'Electronics retailer', category: 'Consumer electronics' }),
-    node('risk:freeze', 'Freeze Decision', 'RiskSignal', ['RiskSignal'], { confidence: '83%', action: 'Temporary freeze' }),
-    node('risk:freeze:reason', 'Freeze Reason', 'Evidence', ['Evidence', 'RiskDetail'], { reason: 'Merchant anomaly + purchase size' }),
-    node('risk:fraud-case', 'Fraud Review', 'RiskSignal', ['RiskSignal', 'Case'], { status: 'Not escalated', sla: 'Same call' }),
-    node('account:offset', 'Offset Account', 'Account', ['Account'], { maskedAccount: 'xxxx-7720', linkedLoan: 'Home loan HL-2041' }),
-    node('loan:home', 'Home Loan', 'Loan', ['Loan'], { loanId: 'HL-2041', repaymentSource: 'Offset account' }),
-    node('payment:home-loan', 'Home Loan Payment', 'Payment', ['Payment'], { scheduledAmount: '$4,280.00', status: 'Rejected' }),
-    node('payment:home-loan:record-impact', 'Record Impact', 'Evidence', ['Evidence', 'PaymentDetail'], { impact: 'Preventable', reportingStatus: 'No record impact yet' }),
-    node('case:incident', 'Premier Care Case', 'Case', ['Case'], { priority: 'Premier', owner: 'Aria' }),
-    node('consent:grace', 'Grace Consent', 'Consent', ['Consent'], { required: 'Yes', capture: 'Voice confirmation' }),
-    node('remediation:grace', 'Grace Period', 'Remediation', ['Remediation'], { status: 'Available after consent', duration: '14 days' }),
-    node('remediation:grace:expiry', 'Grace Expiry', 'Evidence', ['Evidence', 'RemediationDetail'], { expiry: '14 days from today' }),
-    node('consent:digital-card', 'Digital Card Consent', 'Consent', ['Consent'], { required: 'Yes', capture: 'Voice confirmation' }),
-    node('card:digital', 'Digital Card', 'Card', ['Card', 'Remediation'], { status: 'Ready to activate', walletSupport: 'Apple Pay, Google Pay' }),
-    node('card:digital:wallets', 'Wallet Rails', 'Evidence', ['Evidence', 'CardDetail'], { supportedWallets: 'Apple Pay, Google Pay' }),
-    node('fulfilment:physical-card', 'Physical Card Shipment', 'Remediation', ['Remediation', 'Fulfilment'], { method: 'Express post', eta: '1-2 business days' })
-  ];
-  const links = [];
-  for (let i = 0; i < tracePath.length - 1; i += 1) links.push(link(tracePath[i], tracePath[i + 1], 'NEXT_CONTEXT', {}));
-  links.push(link('fulfilment:physical-card', 'address:registered', 'SHIPS_ONLY_TO', { guardrail: 'registered address only' }));
+  const fallback = {
+    'customer:jack': ['Jack Thompson', 'Customer', ['Customer', 'Premier'], { segment: 'Premier Banking', relationshipSince: '2016' }],
+    'identity:biometric': ['Biometric Push', 'Identity', ['Identity', 'SecurityControl'], { status: 'Approved', confidence: '99.6%' }],
+    'device:iphone': ['Trusted iPhone', 'Identity', ['Device', 'Security'], { device: 'iPhone 15 Pro', trustScore: 'Strong' }],
+    'card:visa4481': ['Awards Visa 4481', 'Card', ['Card'], { status: 'Temporarily frozen', lastFour: '4481' }],
+    'txn:electronics': ['Electronics Purchase', 'Transaction', ['Transaction'], { amount: '$1,842.77', merchant: 'Electronics retailer' }],
+    'risk:freeze': ['Freeze Decision', 'RiskSignal', ['RiskSignal'], { action: 'Temporary freeze', confidence: '83%' }],
+    'payment:home-loan': ['Home Loan Payment', 'Payment', ['Payment'], { status: 'Rejected', scheduledAmount: '$4,280.00' }],
+    'consent:grace': ['Grace Consent', 'Consent', ['Consent'], { required: 'Yes', capture: 'Voice confirmation' }],
+    'remediation:grace': ['Grace Period', 'Remediation', ['Remediation'], { duration: '14 days', status: 'Available after consent' }],
+    'card:digital': ['Digital Card', 'Card', ['Card', 'Remediation'], { status: 'Ready to activate', walletSupport: 'Apple Pay, Google Pay' }],
+    'fulfilment:physical-card': ['Physical Card', 'Remediation', ['Remediation', 'Fulfilment'], { method: 'Express post', eta: '1-2 business days' }],
+    'address:registered': ['Registered Address', 'Address', ['Address', 'PersonalInfo'], { usage: 'Card fulfilment only', guardrail: 'Registered address only' }]
+  };
+  const nodes = visibleIds.map((id) => {
+    const [label, primaryLabel, labels, properties] = fallback[id];
+    return { id, label, primaryLabel, labels, properties };
+  });
+  const links = tracePath.slice(0, -1).map((id, index) => ({ source: id, target: tracePath[index + 1], type: 'ACCESSES', properties: {} }));
   return { nodes, links };
-}
-
-function node(id, label, primaryLabel, labels, properties) {
-  return { id, label, primaryLabel, labels, properties };
-}
-
-function link(source, target, type, properties) {
-  return { source, target, type, properties };
 }

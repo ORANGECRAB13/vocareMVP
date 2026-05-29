@@ -3,64 +3,66 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>CommBank Context Graph</title>
+    <title>Vocare</title>
     <link rel="stylesheet" href="/static/graph-3d.css">
   </head>
   <body>
-    <main class="graph-app">
-      <section class="viewport">
-        <div class="toolbar">
-          <a class="back-link" href="/">Graph</a>
-          <label>
-            Relationships
-            <input id="limitInput" type="number" min="100" max="10000" step="100" value="2500">
-          </label>
-          <input id="searchInput" type="search" placeholder="Find node...">
-          <button id="traceButton" type="button">Aria trace</button>
-          <button id="refreshButton" type="button">Refresh</button>
-          <span id="statusText">Loading...</span>
+    <main class="app">
+      <aside class="panel-left">
+        <h1>Vocare</h1>
+
+        <div class="mode-selector">
+          <button class="mode-btn active" type="button">DEMO</button>
+          <button class="mode-btn" type="button">INDIV</button>
         </div>
-        <div class="key-hint">Call connection triggers the context burst - click or search any node to inspect it</div>
-        <div id="graph" aria-label="CommBank context graph traversal"></div>
-      </section>
 
-      <aside class="inspector">
-        <h1>Context Graph</h1>
-        <p class="muted">Aria follows a focused customer context path. Active nodes glow as they are accessed during the call.</p>
+        <div id="callStatus" class="status">Aria is ready.</div>
 
-        <dl class="stats">
-          <div><dt>Nodes</dt><dd id="nodeCount">...</dd></div>
-          <div><dt>Relationships</dt><dd id="linkCount">...</dd></div>
-        </dl>
+        <div class="call-actions">
+          <button id="callButton" class="btn primary" type="button">Call Aria</button>
+          <button id="talkButton" class="btn" type="button" disabled>Hold to talk</button>
+          <button id="hangupButton" class="btn danger" type="button" disabled>End call</button>
+        </div>
 
-        <section>
-          <h2>Selection</h2>
-          <div id="selectionDetails" class="details">Nothing selected.</div>
+        <button id="traceButton" class="btn ghost" type="button">Run graph demo</button>
+        <button id="refreshButton" class="btn ghost" type="button">Refresh context</button>
+
+        <label class="search-label" for="searchInput">Find context node</label>
+        <input id="searchInput" type="search" placeholder="Search card, payment, address...">
+        <input id="limitInput" type="hidden" value="2500">
+
+        <section class="transcript-section">
+          <div class="section-label">Transcript</div>
+          <div id="callTranscript" class="transcript-messages"></div>
         </section>
 
-        <section>
-          <h2>Voice call</h2>
-          <div class="call-panel">
-            <div id="callStatus" class="call-status">Aria is ready.</div>
-            <div class="call-actions">
-              <button id="callButton" type="button">Call Aria</button>
-              <button id="talkButton" type="button" disabled>Hold to talk</button>
-              <button id="hangupButton" type="button" disabled>End</button>
-            </div>
-            <div id="callTranscript" class="call-transcript"></div>
-          </div>
-        </section>
-
-        <section>
-          <h2>Aria access path</h2>
-          <div id="accessPath" class="path-list"></div>
-        </section>
-
-        <section>
-          <h2>Legend</h2>
-          <div id="legend" class="legend"></div>
+        <section class="details-section">
+          <div class="section-label">Selected context</div>
+          <div id="selectionDetails" class="details">Connect or run the demo to expand Jack's context graph.</div>
         </section>
       </aside>
+
+      <section class="panel-right">
+        <div class="graph-header">
+          <h2>Context Graph</h2>
+          <div id="statusText" class="graph-status">Waiting for connection...</div>
+        </div>
+
+        <div class="graph-scene" id="graph">
+          <canvas id="edgeCanvas"></canvas>
+          <div id="graphWorld" class="graph-world"></div>
+          <div id="graphPlaceholder" class="graph-placeholder">Call Aria or run the demo to reveal the context graph</div>
+        </div>
+
+        <div id="legend" class="graph-legend"></div>
+
+        <div class="stats">
+          <span><strong id="nodeCount">0</strong> nodes</span>
+          <span><strong id="linkCount">0</strong> relationships</span>
+        </div>
+
+        <div id="accessPath" class="path-strip"></div>
+      </section>
     </main>
 
     <script src="/static/graph-3d.js"></script>
