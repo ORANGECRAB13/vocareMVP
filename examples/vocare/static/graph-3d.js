@@ -13,6 +13,9 @@ const talkButton = document.querySelector('#talkButton');
 const hangupButton = document.querySelector('#hangupButton');
 const callStatus = document.querySelector('#callStatus');
 const callTranscript = document.querySelector('#callTranscript');
+const modeDemoBtn = document.querySelector('#modeDemoBtn');
+const modeIndivBtn = document.querySelector('#modeIndivBtn');
+const viewerBanner = document.querySelector('#viewerBanner');
 
 const NODE_TYPES = {
   Customer: { hex: '#f59e0b', rgb: '245,158,11', glyph: 'J' },
@@ -172,6 +175,12 @@ let graphPollTimer = 0;
 let pingTimer = 0;
 let traceTimer = 0;
 let traceIndex = 0;
+let currentMode = 'demo';
+let demoCheckTimer = 0;
+let viewerPollTimer = 0;
+let viewerCursor = 0;
+let viewerPollInFlight = false;
+let isViewer = false;
 const transcriptSeen = new Set();
 
 class ContextGraph {
@@ -409,6 +418,8 @@ const graphRenderer = new ContextGraph('graphWorld', 'edgeCanvas');
 initialize();
 
 async function initialize() {
+  modeDemoBtn.addEventListener('click', () => setMode('demo'));
+  modeIndivBtn.addEventListener('click', () => setMode('indiv'));
   refreshButton.addEventListener('click', loadGraph);
   traceButton.addEventListener('click', runTraceDemo);
   callButton.addEventListener('click', connectCall);
@@ -428,6 +439,22 @@ async function initialize() {
   });
   window.addEventListener('pagehide', () => disconnectCall(true));
   await loadGraph();
+  startDemoCheck();
+}
+
+function setMode(mode) {
+  currentMode = mode;
+  modeDemoBtn.classList.toggle('active', mode === 'demo');
+  modeIndivBtn.classList.toggle('active', mode === 'indiv');
+  if (mode === 'demo') {
+    callStatus.textContent = 'Demo mode: phone presenter, laptop viewer.';
+    startDemoCheck();
+  } else {
+    stopViewerMode();
+    stopDemoCheck();
+    viewerBanner.classList.remove('is-visible');
+    callStatus.textContent = 'Individual mode: this browser owns the call.';
+  }
 }
 
 async function loadGraph() {
@@ -495,6 +522,88 @@ function runTraceDemo() {
   }, 560);
 }
 
+function handleGraphEvent(event) {
+  if (event.type === 'user_transcription') addTranscript('user', event.text);
+  if (event.type === 'bot_transcription') addTranscript('agent', event.text);
+  if (event.type === 'node_access') focusEventNode(event);
+}
+
+function startDemoCheck() {
+  if (currentMode !== 'demo' || callState === 'connecting' || callState === 'connected') return;
+  stopDemoCheck();
+  const check = async () => {
+    if (currentMode !== 'demo' || callState === 'connecting' || callState === 'connected') return;
+    try {
+      const response = await fetch('/api/demo/status');
+      if (!response.ok) return;
+      const body = await response.json();
+      if (body.active && !isViewer) enterViewerMode();
+    } catch (_) {}
+  };
+  demoCheckTimer = window.setInterval(check, 1500);
+  check();
+}
+
+function stopDemoCheck() {
+  if (demoCheckTimer) clearInterval(demoCheckTimer);
+  demoCheckTimer = 0;
+}
+
+function enterViewerMode() {
+  isViewer = true;
+  viewerCursor = 0;
+  viewerPollInFlight = false;
+  viewerBanner.textContent = 'Watching live phone demo...';
+  viewerBanner.classList.add('is-visible');
+  callStatus.textContent = 'Presentation mirror active.';
+  callButton.disabled = true;
+  talkButton.disabled = true;
+  hangupButton.disabled = true;
+  clearTranscript();
+  graphRenderer.load(graphData);
+  statusText.textContent = 'Watching live graph traversal...';
+  stopViewerPoll();
+
+  const poll = async () => {
+    if (viewerPollInFlight) return;
+    viewerPollInFlight = true;
+    try {
+      const response = await fetch(`/api/demo/poll?cursor=${viewerCursor}`);
+      if (!response.ok) return;
+      const body = await response.json();
+      for (const event of body.events || []) handleGraphEvent(event);
+      viewerCursor = body.cursor ?? viewerCursor;
+      if (!body.active) {
+        stopViewerMode();
+        if (currentMode === 'demo') startDemoCheck();
+      }
+    } catch (_) {
+    } finally {
+      viewerPollInFlight = false;
+    }
+  };
+  viewerPollTimer = window.setInterval(poll, 350);
+  poll();
+}
+
+function stopViewerPoll() {
+  if (viewerPollTimer) clearInterval(viewerPollTimer);
+  viewerPollTimer = 0;
+}
+
+function stopViewerMode() {
+  stopViewerPoll();
+  isViewer = false;
+  viewerCursor = 0;
+  viewerPollInFlight = false;
+  viewerBanner.classList.remove('is-visible');
+  if (callState === 'idle') {
+    callButton.disabled = false;
+    talkButton.disabled = true;
+    hangupButton.disabled = true;
+  }
+}
+
 function focusNode(id, highlight = true) {
   const node = nodeById.get(id);
   if (!node) return;
@@ -524,6 +633,8 @@ function focusEventNode(event) {
 
 async function connectCall() {
   if (callState === 'connecting' || callState === 'connected') return;
+  stopDemoCheck();
+  stopViewerMode();
   setCallState('connecting', 'Requesting microphone...');
   clearTranscript();
   graphRenderer.load(graphData);
@@ -593,7 +704,7 @@ async function connectCall() {
         stt: 'elevenlabs',
         llm: 'mistral',
         tts: 'elevenlabs',
-        mode: 'indiv'
+        mode: currentMode
       })
     });
     if (!response.ok) throw new Error(`Offer failed (${response.status})`);
@@ -642,6 +753,7 @@ function disconnectCall(keepalive = false) {
   remoteAudio = null;
   activePcId = null;
   if (callState !== 'error') setCallState('idle', 'Aria is ready.');
+  if (currentMode === 'demo') startDemoCheck();
 }
 
 function startTalking(event) {
@@ -702,11 +814,7 @@ function startGraphPolling(pcId) {
     try {
       const response = await fetch(`/api/graph/poll?pc_id=${encodeURIComponent(pcId)}`);
       const body = await response.json();
-      for (const event of body.events || []) {
-        if (event.type === 'user_transcription') addTranscript('user', event.text);
-        if (event.type === 'bot_transcription') addTranscript('agent', event.text);
-        if (event.type === 'node_access') focusEventNode(event);
-      }
+      for (const event of body.events || []) handleGraphEvent(event);
       if (body.closed) disconnectCall();
     } catch (_) {}
   };

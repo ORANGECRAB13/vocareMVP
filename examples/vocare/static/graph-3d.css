@@ -74,6 +74,18 @@ h1 {
   text-align: center;
 }
 
+.viewer-banner {
+  display: none;
+  min-height: 20px;
+  color: #22c55e;
+  font-size: 13px;
+  text-align: center;
+}
+
+.viewer-banner.is-visible {
+  display: block;
+}
+
 .call-actions {
   display: grid;
   gap: 10px;
